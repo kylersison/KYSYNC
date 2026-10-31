@@ -1,13 +1,8 @@
 // Canvas renderer: perspective note highway, gems, holds, HUD.
+// Washi theme: paper texture, sumi ink lines, dye-colored notes.
 
-import { LANE_COUNT, LANE_COLORS, LANE_LABELS } from './constants.js';
-
-const GRADE_STYLE = {
-  perfect: { text: 'PERFECT', color: '#7cf7ff' },
-  great: { text: 'GREAT', color: '#9dff7c' },
-  good: { text: 'GOOD', color: '#ffd23f' },
-  miss: { text: 'MISS', color: '#ff5470' },
-};
+import { LANE_COUNT, LANE_LABELS } from './constants.js';
+import { THEME, LANE_COLORS, GRADE_STYLE, makePaper, shade, roundRect } from './theme.js';
 
 const FOCAL = 1;
 const Z_FAR = 3; // higher = steeper perspective
@@ -15,6 +10,12 @@ const S_FAR = FOCAL / (FOCAL + Z_FAR);
 
 const laneCenter = (lane) => -1 + (2 * lane + 1) / LANE_COUNT;
 const laneEdge = (i) => -1 + (2 * i) / LANE_COUNT;
+
+// '#rrggbb' + alpha → rgba()
+function alpha(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+}
 
 export class Renderer {
   constructor(canvas) {
@@ -38,6 +39,7 @@ export class Renderer {
     this.hitY = this.h * 0.84;
     this.horizonY = this.h * 0.1;
     this.half = Math.min(this.w * 0.44, 340);
+    this.paper = makePaper(this.w, this.h, dpr);
   }
 
   /** dt: seconds until the note reaches the hit line. x: -1..1 across the highway. */
@@ -55,6 +57,13 @@ export class Renderer {
     g.beginPath();
     g.moveTo(a0.x, a0.y); g.lineTo(a1.x, a1.y); g.lineTo(b1.x, b1.y); g.lineTo(b0.x, b0.y);
     g.closePath();
+  }
+
+  _line(dt0, x0, dt1, x1, look) {
+    const a = this.project(dt0, x0, look), b = this.project(dt1, x1, look);
+    const g = this.g;
+    g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+    return a;
   }
 
   consumeEvents(events) {
@@ -77,31 +86,28 @@ export class Renderer {
     this.lastFrame = now;
     if (judge) this.consumeEvents(judge.events);
 
-    // Background
-    const bg = g.createLinearGradient(0, 0, 0, this.h);
-    bg.addColorStop(0, '#07060f');
-    bg.addColorStop(1, '#161033');
-    g.fillStyle = bg;
-    g.fillRect(0, 0, this.w, this.h);
+    // Paper background
+    g.drawImage(this.paper, 0, 0, this.w, this.h);
 
     const look = lookahead;
     const bottom = -0.035 * look; // a sliver of highway below the hit line
 
-    // Highway surface
+    // Highway: a deeper sheet of paper laid on top, fading into the distance
     this._quad(bottom, look, -1, 1, look);
     const hw = g.createLinearGradient(0, this.horizonY, 0, this.hitY);
-    hw.addColorStop(0, 'rgba(30,24,70,0.15)');
-    hw.addColorStop(1, 'rgba(36,28,84,0.95)');
+    hw.addColorStop(0, alpha(THEME.paperDeep, 0));
+    hw.addColorStop(0.5, alpha(THEME.paperDeep, 0.6));
+    hw.addColorStop(1, alpha(THEME.paperDeep, 0.95));
     g.fillStyle = hw;
     g.fill();
 
-    // Lane press glow
+    // Lane press wash (like ink bleeding into paper)
     for (let l = 0; l < LANE_COUNT; l++) {
       if (!keysDown[l]) continue;
-      this._quad(bottom, look, laneEdge(l), laneEdge(l + 1), look);
+      this._quad(bottom, look * 0.6, laneEdge(l), laneEdge(l + 1), look);
       const grad = g.createLinearGradient(0, this.horizonY, 0, this.hitY);
-      grad.addColorStop(0, 'rgba(255,255,255,0)');
-      grad.addColorStop(1, LANE_COLORS[l] + '33');
+      grad.addColorStop(0, alpha(LANE_COLORS[l], 0));
+      grad.addColorStop(1, alpha(LANE_COLORS[l], 0.16));
       g.fillStyle = grad;
       g.fill();
     }
@@ -113,35 +119,35 @@ export class Renderer {
       const last = Math.floor((t + look - offset) / beat);
       for (let k = first; k <= last; k++) {
         const dt = offset + k * beat - t;
-        const a = this.project(dt, -1, look), b = this.project(dt, 1, look);
         const isBar = ((k % 4) + 4) % 4 === 0;
-        g.strokeStyle = isBar ? 'rgba(180,170,255,0.35)' : 'rgba(180,170,255,0.12)';
-        g.lineWidth = (isBar ? 2 : 1) * a.s;
-        g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
+        const fade = 1 - Math.max(0, dt / look);
+        g.strokeStyle = alpha(THEME.ink, (isBar ? 0.28 : 0.1) * fade);
+        g.lineWidth = isBar ? 1.5 : 1;
+        this._line(dt, -1, dt, 1, look);
       }
     }
 
-    // Lane dividers + edges
+    // Lane dividers + edges in ink, fading toward the horizon
     for (let i = 0; i <= LANE_COUNT; i++) {
       const x = laneEdge(i);
+      const edge = i === 0 || i === LANE_COUNT;
       const a = this.project(bottom, x, look), b = this.project(look, x, look);
-      g.strokeStyle = i === 0 || i === LANE_COUNT ? 'rgba(160,140,255,0.7)' : 'rgba(160,140,255,0.18)';
-      g.lineWidth = i === 0 || i === LANE_COUNT ? 3 : 1;
+      const grad = g.createLinearGradient(0, b.y, 0, a.y);
+      grad.addColorStop(0, alpha(THEME.ink, 0));
+      grad.addColorStop(1, alpha(THEME.ink, edge ? 0.75 : 0.16));
+      g.strokeStyle = grad;
+      g.lineWidth = edge ? 2.5 : 1;
       g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
     }
 
-    // Hit line
-    {
-      const a = this.project(0, -1, look), b = this.project(0, 1, look);
-      g.strokeStyle = 'rgba(255,255,255,0.55)';
-      g.lineWidth = 2;
-      g.beginPath(); g.moveTo(a.x, a.y); g.lineTo(b.x, b.y); g.stroke();
-    }
+    // Hit line: a brush-weight ink stroke
+    g.strokeStyle = THEME.ink;
+    g.lineWidth = 2.5;
+    this._line(0, -1.02, 0, 1.02, look);
 
-    // Targets
     for (let l = 0; l < LANE_COUNT; l++) this._drawTarget(l, keysDown[l], look);
 
-    // Notes (draw far → near so near notes are on top)
+    // Notes (far → near so near notes are on top)
     if (judge) {
       const notes = judge.notes;
       for (let i = notes.length - 1; i >= 0; i--) {
@@ -155,27 +161,23 @@ export class Renderer {
       }
     }
 
-    // Flash bursts
+    // Hit bursts: an expanding ink ring
     for (let l = 0; l < LANE_COUNT; l++) {
       if (this.flash[l] <= 0) continue;
       const p = this.project(0, laneCenter(l), look);
       const r = (1.4 - this.flash[l]) * this.half * 0.22;
-      g.strokeStyle = LANE_COLORS[l];
-      g.globalAlpha = this.flash[l];
-      g.lineWidth = 4;
+      g.strokeStyle = alpha(LANE_COLORS[l], this.flash[l] * 0.9);
+      g.lineWidth = 3 * this.flash[l] + 1;
       g.beginPath(); g.ellipse(p.x, p.y, r, r * 0.4, 0, 0, Math.PI * 2); g.stroke();
-      g.globalAlpha = 1;
       this.flash[l] = Math.max(0, this.flash[l] - frameDt * 4);
     }
 
-    // Active holds sparkle
+    // Active holds glow
     if (judge) {
       for (const n of judge.activeHolds) {
         const p = this.project(0, laneCenter(n.lane), look);
-        g.fillStyle = LANE_COLORS[n.lane];
-        g.globalAlpha = 0.5 + 0.5 * Math.sin(now / 40);
-        g.beginPath(); g.ellipse(p.x, p.y, this.half * 0.14, this.half * 0.05, 0, 0, Math.PI * 2); g.fill();
-        g.globalAlpha = 1;
+        g.fillStyle = alpha(LANE_COLORS[n.lane], 0.25 + 0.2 * Math.sin(now / 50));
+        g.beginPath(); g.ellipse(p.x, p.y - this.half * 0.06, this.half * 0.17, this.half * 0.07, 0, 0, Math.PI * 2); g.fill();
       }
     }
 
@@ -186,7 +188,7 @@ export class Renderer {
       const pos = this.project(0, laneCenter(p.lane), look);
       g.globalAlpha = Math.max(0, 1 - p.age / 0.5);
       g.fillStyle = p.color;
-      g.font = `700 ${Math.round(this.half * 0.075)}px Oxanium, system-ui, sans-serif`;
+      g.font = `700 ${Math.round(this.half * 0.07)}px ${THEME.font}`;
       g.fillText(p.text, pos.x, pos.y - this.half * 0.18 - p.age * 60);
     }
     g.globalAlpha = 1;
@@ -197,42 +199,68 @@ export class Renderer {
     // Lead-in countdown
     if (t < 0) {
       const n = Math.ceil(-t);
-      g.fillStyle = 'rgba(255,255,255,0.9)';
-      g.font = `800 ${Math.round(this.h * 0.12)}px Oxanium, system-ui, sans-serif`;
+      g.fillStyle = THEME.ink;
+      g.font = `800 ${Math.round(this.h * 0.12)}px ${THEME.fontDisplay}`;
       g.textAlign = 'center';
-      g.fillText(n > 0 ? String(n) : '', this.cx, this.h * 0.42);
+      if (n > 0) g.fillText(String(n), this.cx, this.h * 0.42);
     }
   }
 
+  // Lane targets are keycaps sitting on the hit line; pressing pushes them down.
   _drawTarget(lane, pressed, look) {
     const g = this.g;
     const p = this.project(0, laneCenter(lane), look);
-    const w = (this.half * 2) / LANE_COUNT;
-    const rx = w * 0.38, ry = rx * 0.38;
-    g.lineWidth = 3;
-    g.strokeStyle = LANE_COLORS[lane];
-    g.fillStyle = pressed ? LANE_COLORS[lane] : 'rgba(10,8,25,0.85)';
-    g.beginPath(); g.ellipse(p.x, p.y, rx, ry, 0, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.fillStyle = pressed ? '#0b0918' : 'rgba(255,255,255,0.8)';
-    g.font = `700 ${Math.round(ry * 1.1)}px Oxanium, system-ui, sans-serif`;
+    const laneW = (this.half * 2) / LANE_COUNT;
+    const w = laneW * 0.76, h = laneW * 0.36, r = h * 0.3;
+    const depth = h * 0.3;
+    const sink = pressed ? depth * 0.7 : 0;
+    const c = LANE_COLORS[lane];
+    const x = p.x - w / 2, y = p.y - h / 2;
+
+    // shadow on the paper, then the key's side wall
+    g.fillStyle = 'rgba(60, 45, 20, 0.18)';
+    roundRect(g, x + 1, y + depth + 3, w, h, r); g.fill();
+    g.fillStyle = shade(c, -0.18);
+    roundRect(g, x, y + depth, w, h, r); g.fill();
+
+    // key top
+    roundRect(g, x, y + sink, w, h, r);
+    g.fillStyle = pressed ? c : THEME.paperLight;
+    g.fill();
+    g.lineWidth = 2;
+    g.strokeStyle = c;
+    g.stroke();
+    if (!pressed) {
+      // soft sheen along the top edge
+      g.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      roundRect(g, x + w * 0.12, y + 3, w * 0.76, h * 0.14, h * 0.07); g.fill();
+    }
+
+    g.fillStyle = pressed ? THEME.paperLight : c;
+    g.font = `700 ${Math.round(h * 0.5)}px ${THEME.font}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.fillText(LANE_LABELS[lane], p.x, p.y + 1);
+    g.fillText(LANE_LABELS[lane], p.x, p.y + sink + 1);
     g.textBaseline = 'alphabetic';
   }
 
+  // Notes are small dyed tiles with a darker edge and a highlight strip.
   _drawGem(lane, dt, look, missed) {
     const g = this.g;
     const p = this.project(dt, laneCenter(lane), look);
-    const w = ((this.half * 2) / LANE_COUNT) * p.s;
-    const rx = w * 0.4, ry = rx * 0.36;
-    const color = missed ? '#55506e' : LANE_COLORS[lane];
-    g.fillStyle = 'rgba(0,0,0,0.35)';
-    g.beginPath(); g.ellipse(p.x, p.y + ry * 0.35, rx, ry, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = color;
-    g.beginPath(); g.ellipse(p.x, p.y, rx, ry, 0, 0, Math.PI * 2); g.fill();
-    g.fillStyle = missed ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.75)';
-    g.beginPath(); g.ellipse(p.x, p.y - ry * 0.25, rx * 0.55, ry * 0.3, 0, 0, Math.PI * 2); g.fill();
+    const laneW = ((this.half * 2) / LANE_COUNT) * p.s;
+    const w = laneW * 0.72, h = w * 0.34, d = h * 0.32, r = h * 0.32;
+    const c = missed ? THEME.missed : LANE_COLORS[lane];
+    const x = p.x - w / 2, y = p.y - h / 2;
+
+    g.fillStyle = 'rgba(60, 45, 20, 0.16)';
+    roundRect(g, x + 1, y + d + 2, w, h, r); g.fill();
+    g.fillStyle = missed ? shade(THEME.missed, -0.15) : shade(c, -0.3);
+    roundRect(g, x, y + d, w, h, r); g.fill();
+    g.fillStyle = c;
+    roundRect(g, x, y, w, h, r); g.fill();
+    g.fillStyle = `rgba(255, 250, 238, ${missed ? 0.15 : 0.38})`;
+    roundRect(g, x + w * 0.08, y + h * 0.16, w * 0.84, h * 0.22, h * 0.11); g.fill();
   }
 
   _drawHold(n, t, look, bottom) {
@@ -244,9 +272,8 @@ export class Renderer {
     const end = Math.min(n.time + n.duration - t, look);
     if (end <= start) return;
     const c = laneCenter(n.lane);
-    const half = 0.07;
-    this._quad(start, end, c - half, c + half, look);
-    g.fillStyle = dead ? 'rgba(85,80,110,0.6)' : LANE_COLORS[n.lane] + (held ? 'ee' : '99');
+    this._quad(start, end, c - 0.07, c + 0.07, look);
+    g.fillStyle = dead ? alpha('#a89e88', 0.5) : alpha(LANE_COLORS[n.lane], held ? 0.85 : 0.55);
     g.fill();
   }
 
@@ -254,40 +281,40 @@ export class Renderer {
     const g = this.g;
     const pad = 24;
     g.textAlign = 'left';
-    g.fillStyle = '#fff';
-    g.font = `800 34px Oxanium, system-ui, sans-serif`;
+    g.fillStyle = THEME.ink;
+    g.font = `700 34px ${THEME.fontDisplay}`;
     g.fillText(Math.floor(judge.score).toLocaleString(), pad, pad + 30);
-    g.font = `500 15px Oxanium, system-ui, sans-serif`;
-    g.fillStyle = 'rgba(255,255,255,0.65)';
+    g.font = `500 15px ${THEME.font}`;
+    g.fillStyle = THEME.inkSoft;
     g.fillText(`${(judge.accuracy * 100).toFixed(1)}%`, pad, pad + 54);
 
     // Combo + multiplier, left of the hit line
     const left = this.cx - this.half - 16;
     g.textAlign = 'right';
-    g.font = `800 ${judge.combo >= 10 ? 40 : 32}px Oxanium, system-ui, sans-serif`;
-    g.fillStyle = '#fff';
+    g.font = `700 ${judge.combo >= 10 ? 40 : 32}px ${THEME.fontDisplay}`;
+    g.fillStyle = THEME.ink;
     if (judge.combo > 1) g.fillText(String(judge.combo), left, this.hitY - 30);
     const mult = judge.multiplier;
-    g.font = `800 24px Oxanium, system-ui, sans-serif`;
-    g.fillStyle = ['#fff', '#fff', '#7cf7ff', '#ffd23f', '#ff8a3d'][mult];
+    g.font = `700 24px ${THEME.font}`;
+    g.fillStyle = mult >= 4 ? LANE_COLORS[1] : mult >= 2 ? THEME.accent : THEME.inkSoft;
     g.fillText(`×${mult}`, left, this.hitY + 4);
 
     // Title / difficulty
     g.textAlign = 'right';
-    g.fillStyle = 'rgba(255,255,255,0.85)';
-    g.font = `600 16px Oxanium, system-ui, sans-serif`;
+    g.fillStyle = THEME.ink;
+    g.font = `600 17px ${THEME.fontDisplay}`;
     g.fillText(title || '', this.w - pad, pad + 18);
-    g.fillStyle = 'rgba(255,255,255,0.5)';
-    g.font = `500 13px Oxanium, system-ui, sans-serif`;
+    g.fillStyle = THEME.accent;
+    g.font = `500 12px ${THEME.font}`;
     g.fillText((difficulty || '').toUpperCase(), this.w - pad, pad + 38);
 
-    // Progress bar
+    // Progress: a thin green thread across the top
     if (duration > 0) {
       const p = Math.max(0, Math.min(1, t / duration));
-      g.fillStyle = 'rgba(255,255,255,0.08)';
-      g.fillRect(0, 0, this.w, 4);
-      g.fillStyle = '#9d7cff';
-      g.fillRect(0, 0, this.w * p, 4);
+      g.fillStyle = THEME.inkFaint;
+      g.fillRect(0, 0, this.w, 3);
+      g.fillStyle = THEME.accent;
+      g.fillRect(0, 0, this.w * p, 3);
     }
   }
 }

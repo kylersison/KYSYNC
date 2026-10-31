@@ -5,7 +5,7 @@ export const LANE_COUNT = 5;
 // event.code values, so the layout works on any keyboard language (JIS, US, etc.)
 export const LANE_KEYS = ['KeyD', 'KeyF', 'KeyJ', 'KeyK', 'KeyL'];
 export const LANE_LABELS = ['D', 'F', 'J', 'K', 'L'];
-export const LANE_COLORS = ['#3ddc84', '#ff4d6d', '#ffd23f', '#3fa9ff', '#ff8a3d'];
+export { LANE_COLORS } from './theme.js';
 
 // Hit windows in seconds (± from the note's time).
 export const WINDOWS = {

@@ -2,6 +2,12 @@ import './style.css';
 import { Game } from './game.js';
 import { normalizeChart } from './chart.js';
 import { buildDemoChart, renderDemoAudio } from './demoSong.js';
+import { makePaper } from './theme.js';
+
+// Menu panels use the same generated washi as the game canvas, just lighter.
+document.documentElement.style.setProperty(
+  '--washi', `url(${makePaper(520, 760, 1, '#f4ecda').toDataURL()})`,
+);
 
 const game = new Game(document.querySelector('#game'));
 
