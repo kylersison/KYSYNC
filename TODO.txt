@@ -1,0 +1,5 @@
+Add:
+ - Timer after pause
+ - Instrument splice + vocals
+ - Visuals easier to read the difference in Taiko
+ - 
