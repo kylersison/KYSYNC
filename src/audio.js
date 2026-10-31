@@ -10,11 +10,18 @@ export class AudioEngine {
     this.source = null;
     this.startAt = 0;     // context time at which song time = 0
     this.frozen = null;   // song time while paused
+    this.volume = 0.8;    // 0..1, applied through the master gain
+    this.master = null;
   }
 
   /** Must be called from a user gesture (click / key) the first time. */
   ensure() {
-    if (!this.ctx) this.ctx = new AudioContext({ latencyHint: 'interactive' });
+    if (!this.ctx) {
+      this.ctx = new AudioContext({ latencyHint: 'interactive' });
+      this.master = this.ctx.createGain();
+      this.master.gain.value = this.volume * this.volume;
+      this.master.connect(this.ctx.destination);
+    }
     if (this.ctx.state === 'suspended' && this.frozen == null) this.ctx.resume();
     return this.ctx;
   }
@@ -59,7 +66,7 @@ export class AudioEngine {
     this.frozen = null;
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.connect(ctx.destination);
+    src.connect(this.master);
     this.startAt = ctx.currentTime + leadIn;
     src.start(this.startAt);
     this.source = src;
@@ -85,6 +92,17 @@ export class AudioEngine {
     this.frozen = null;
   }
 
+  /** 0..1. Squared so the slider feels even to the ear. */
+  setVolume(v) {
+    this.volume = Math.max(0, Math.min(1, v));
+    if (!this.master) return;
+    const g = this.master.gain, target = this.volume * this.volume;
+    g.cancelScheduledValues(this.ctx.currentTime);
+    // While paused the audio clock is stopped, so ramps wouldn't run: set it directly.
+    if (this.ctx.state === 'running') g.setTargetAtTime(target, this.ctx.currentTime, 0.02);
+    else g.value = target;
+  }
+
   get paused() {
     return this.frozen != null;
   }
@@ -98,7 +116,7 @@ export class AudioEngine {
     g.gain.setValueAtTime(0.0001, when);
     g.gain.exponentialRampToValueAtTime(0.5, when + 0.002);
     g.gain.exponentialRampToValueAtTime(0.0001, when + 0.06);
-    o.connect(g).connect(ctx.destination);
+    o.connect(g).connect(this.master);
     o.start(when);
     o.stop(when + 0.08);
   }

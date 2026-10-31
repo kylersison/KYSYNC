@@ -44,7 +44,9 @@ export class Game {
       difficulty: store.get('difficulty', 'medium'),
       speed: store.get('speed', 1.5),
       offsetMs: store.get('offsetMs', 0),
+      volume: store.get('volume', 80),
     };
+    this.engine.setVolume(this.settings.volume / 100);
     this.state = 'menu';
     this.keysDown = new Array(LANE_COUNT).fill(false);
     this.judge = null;
@@ -351,6 +353,16 @@ export class Game {
       this._renderSettings();
     });
 
+    // Volume: same setting on the menu and the pause screen, applied live
+    for (const el of document.querySelectorAll('.volume-slider')) {
+      el.addEventListener('input', (e) => {
+        this.settings.volume = Number(e.target.value);
+        store.set('volume', this.settings.volume);
+        this.engine.setVolume(this.settings.volume / 100);
+        this._renderSettings();
+      });
+    }
+
     for (const [id, delta] of [['#offset-down', -5], ['#offset-up', 5]]) {
       $(id).addEventListener('click', () => {
         this.settings.offsetMs += delta;
@@ -388,6 +400,8 @@ export class Game {
     $('#speed').value = s.speed;
     $('#speed-label').textContent = `${s.speed.toFixed(2)}×`;
     $('#offset-label').textContent = `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs} ms`;
+    for (const el of document.querySelectorAll('.volume-slider')) el.value = s.volume;
+    for (const el of document.querySelectorAll('.volume-label')) el.textContent = `${s.volume}%`;
     for (const b of document.querySelectorAll('#diffs button')) {
       b.classList.toggle('active', b.dataset.diff === s.difficulty);
     }

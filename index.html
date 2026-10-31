@@ -65,6 +65,11 @@
           </section>
         </div>
 
+        <section>
+          <h2>Volume <span class="val volume-label"></span></h2>
+          <input id="volume" class="volume-slider" type="range" min="0" max="100" step="1" />
+        </section>
+
         <button id="play" class="primary">Play</button>
         <p class="keys" data-for-mode="drum"><kbd>D</kbd><kbd>K</kbd> rim (ka) &nbsp;·&nbsp; <kbd>F</kbd><kbd>J</kbd> center (don) &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>R</kbd> restart</p>
         <p class="keys" data-for-mode="highway"><kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> hit &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>R</kbd> restart</p>
@@ -78,6 +83,10 @@
     <div id="pause" class="overlay hidden">
       <div class="panel slim">
         <h2 class="big">Paused</h2>
+        <div class="pause-volume">
+          <h2>Volume <span class="val volume-label"></span></h2>
+          <input id="p-volume" class="volume-slider" type="range" min="0" max="100" step="1" />
+        </div>
         <button id="p-resume" class="primary">Resume</button>
         <button id="p-restart">Restart</button>
         <button id="p-quit">Quit to menu</button>

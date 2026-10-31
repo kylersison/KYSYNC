@@ -4,7 +4,7 @@ import { normalizeChart } from './chart.js';
 import { buildDemoChart, renderDemoAudio } from './demoSong.js';
 import { makePaper } from './theme.js';
 import { library } from './library.js';
-import { CHART_VERSION } from './analysis.js';
+import { CHART_VERSION, autoChart } from './analysis.js';
 
 // Menu panels use the same generated washi as the game canvas, just lighter.
 document.documentElement.style.setProperty(
@@ -45,7 +45,7 @@ library.all().then(async (entries) => {
     try {
       status.textContent = `Updating the chart for "${e.chart.title}"…`;
       const buffer = await game.engine.decode(await e.audio.arrayBuffer());
-      const raw = await autoChartInWorker(buffer, { title: e.chart.title, artist: e.chart.artist }, () => {});
+      const raw = await analyze(buffer, { title: e.chart.title, artist: e.chart.artist }, () => {});
       e.chart = raw;
       await library.save(e);
       const song = game.songs.find((s) => s.id === e.id);
@@ -80,9 +80,32 @@ function autoChartInWorker(buffer, meta, onProgress) {
         else reject(new Error(msg.message));
       }
     };
-    worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message || 'Analysis failed')); };
+    worker.onerror = (e) => {
+      e.preventDefault?.();
+      worker.terminate();
+      const where = e.filename ? ` (${e.filename.split('/').pop()}:${e.lineno})` : '';
+      reject(new Error((e.message || 'the analysis worker could not start') + where));
+    };
     worker.postMessage({ channels, sampleRate: buffer.sampleRate, meta }, channels.map((c) => c.buffer));
   });
+}
+
+/**
+ * Analyze in a worker when possible. Some embedded browsers (e.g. editor preview panes)
+ * block module workers, so fall back to running on the page: it pauses the UI for a few
+ * seconds but always works.
+ */
+async function analyze(buffer, meta, onProgress) {
+  try {
+    return await autoChartInWorker(buffer, meta, onProgress);
+  } catch (err) {
+    console.warn('Worker analysis failed, analyzing on the page instead:', err);
+    onProgress(0.05);
+    await new Promise((r) => setTimeout(r, 60)); // let the loading screen paint first
+    const channels = [];
+    for (let c = 0; c < Math.min(2, buffer.numberOfChannels); c++) channels.push(buffer.getChannelData(c));
+    return autoChart(channels, buffer.sampleRate, meta);
+  }
 }
 
 const audioInput = document.querySelector('#audio-file');
@@ -108,7 +131,7 @@ audioInput.addEventListener('change', async () => {
       raw.title ||= meta.title;
       raw.artist ||= meta.artist;
     } else {
-      raw = await autoChartInWorker(buffer, meta, (p) =>
+      raw = await analyze(buffer, meta, (p) =>
         game.setLoading(`Finding the beat in "${meta.title}"…`, 0.05 + p * 0.95));
     }
     normalizeChart(raw); // validate before saving

@@ -224,7 +224,9 @@ button.small:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(42, 3
 #loading-fill { height: 100%; width: 0; background: var(--forest); transition: width 0.15s; }
 
 .offset { display: flex; gap: 6px; }
+.pause-volume { text-align: left; margin: 4px 0 14px; }
 input[type='range'] { width: 100%; accent-color: var(--forest); }
+input[type='range']:focus-visible { outline: 2px solid var(--forest); outline-offset: 3px; border-radius: 4px; }
 
 .custom { margin-top: 8px; font-size: 13px; color: var(--ink-soft); }
 .custom summary { cursor: pointer; }
