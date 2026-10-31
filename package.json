@@ -1,0 +1,16 @@
+{
+  "name": "kysync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Keyboard rhythm game prototype (Fortnite Festival style) built on the Web Audio API",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "vite": "^8.3.5"
+  }
+}

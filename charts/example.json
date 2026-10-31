@@ -1,0 +1,16 @@
+{
+  "title": "Example Song",
+  "artist": "Example Artist",
+  "bpm": 120,
+  "offset": 0.0,
+  "notes": [
+    { "time": 2.0, "lane": 0 },
+    { "time": 2.5, "lane": 1 },
+    { "time": 3.0, "lane": 2 },
+    { "time": 3.5, "lane": 3 },
+    { "time": 4.0, "lane": 4, "duration": 1.0 },
+    { "time": 5.5, "lane": 2 },
+    { "time": 5.5, "lane": 4 },
+    { "time": 6.0, "lane": 1, "duration": 0.75 }
+  ]
+}

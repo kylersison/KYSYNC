@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KySync</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><ellipse cx=%2216%22 cy=%2218%22 rx=%2213%22 ry=%226%22 fill=%22%239d7cff%22/></svg>" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <!-- Main menu -->
+    <div id="menu" class="overlay">
+      <div class="panel">
+        <h1 class="logo">KY<span>SYNC</span></h1>
+        <p class="tagline">keyboard rhythm prototype</p>
+
+        <section>
+          <h2>Song</h2>
+          <div id="song-list"></div>
+          <details class="custom">
+            <summary>Load your own song</summary>
+            <label>Audio file <input id="audio-file" type="file" accept="audio/*" /></label>
+            <label>Chart JSON <input id="chart-file" type="file" accept=".json,application/json" /></label>
+            <p id="custom-status" class="hint"></p>
+          </details>
+        </section>
+
+        <section>
+          <h2>Difficulty</h2>
+          <div id="diffs" class="seg"></div>
+        </section>
+
+        <div class="row">
+          <section>
+            <h2>Note speed <span id="speed-label" class="val"></span></h2>
+            <input id="speed" type="range" min="1" max="3" step="0.25" />
+          </section>
+          <section>
+            <h2>Audio offset <span id="offset-label" class="val"></span></h2>
+            <div class="offset">
+              <button id="offset-down" class="small">−5</button>
+              <button id="offset-up" class="small">+5</button>
+              <button id="calibrate" class="small">Calibrate</button>
+            </div>
+          </section>
+        </div>
+
+        <button id="play" class="primary">Play</button>
+        <p class="keys"><kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> hit &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>R</kbd> restart</p>
+      </div>
+    </div>
+
+    <div id="loading" class="overlay hidden">
+      <div class="panel slim"><p>Loading song…</p></div>
+    </div>
+
+    <div id="pause" class="overlay hidden">
+      <div class="panel slim">
+        <h2 class="big">Paused</h2>
+        <button id="p-resume" class="primary">Resume</button>
+        <button id="p-restart">Restart</button>
+        <button id="p-quit">Quit to menu</button>
+      </div>
+    </div>
+
+    <div id="results" class="overlay hidden">
+      <div class="panel">
+        <div class="grade" id="r-grade">S</div>
+        <p id="r-title" class="tagline"></p>
+        <div class="score" id="r-score">0</div>
+        <p id="r-best" class="hint center"></p>
+        <div class="stats">
+          <div><span>Accuracy</span><b id="r-acc"></b></div>
+          <div><span>Max combo</span><b id="r-combo"></b></div>
+          <div><span class="perfect">Perfect</span><b id="r-perfect"></b></div>
+          <div><span class="great">Great</span><b id="r-great"></b></div>
+          <div><span class="good">Good</span><b id="r-good"></b></div>
+          <div><span class="miss">Miss</span><b id="r-miss"></b></div>
+        </div>
+        <p id="r-timing" class="hint center"></p>
+        <button id="r-retry" class="primary">Retry</button>
+        <button id="r-menu">Menu</button>
+      </div>
+    </div>
+
+    <div id="calib" class="overlay hidden">
+      <div class="panel slim">
+        <h2 class="big">Calibrate</h2>
+        <p class="hint center">Press Start, then tap <kbd>Space</kbd> exactly on each click you hear. Use headphones if you play with them.</p>
+        <div class="pulse-wrap"><div id="c-pulse" class="pulse"></div></div>
+        <p class="center"><b id="c-live">—</b> <span id="c-taps" class="hint"></span></p>
+        <p id="c-result" class="center"></p>
+        <button id="c-start" class="primary">Start</button>
+        <button id="c-back">Back</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
