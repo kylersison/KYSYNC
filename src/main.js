@@ -3,6 +3,8 @@ import { Game } from './game.js';
 import { normalizeChart } from './chart.js';
 import { buildDemoChart, renderDemoAudio } from './demoSong.js';
 import { makePaper } from './theme.js';
+import { library } from './library.js';
+import { CHART_VERSION } from './analysis.js';
 
 // Menu panels use the same generated washi as the game canvas, just lighter.
 document.documentElement.style.setProperty(
@@ -20,41 +22,109 @@ game.addSong({
   pending: renderDemoAudio(demoRaw), // start synthesizing right away so Play is instant
 });
 
-// Custom song: pick an audio file + a chart JSON
+// ---------- your songs ----------
+
+function addLibrarySong(entry, select = false) {
+  return game.addSong({
+    id: entry.id,
+    chart: normalizeChart(entry.chart),
+    load: async (engine) => engine.decode(await entry.audio.arrayBuffer()),
+    onRemove: () => library.remove(entry.id),
+  }, select);
+}
+
+// Songs added in earlier sessions. Auto-charted songs from an older version of the
+// charter are re-charted in the background (hand-made charts are left alone).
+library.all().then(async (entries) => {
+  const stale = [];
+  for (const e of entries) {
+    addLibrarySong(e);
+    if (!e.handMade && e.chart.version !== CHART_VERSION) stale.push(e);
+  }
+  for (const e of stale) {
+    try {
+      status.textContent = `Updating the chart for "${e.chart.title}"…`;
+      const buffer = await game.engine.decode(await e.audio.arrayBuffer());
+      const raw = await autoChartInWorker(buffer, { title: e.chart.title, artist: e.chart.artist }, () => {});
+      e.chart = raw;
+      await library.save(e);
+      const song = game.songs.find((s) => s.id === e.id);
+      if (song) { song.chart = normalizeChart(raw); song.buffer = buffer; }
+      game.refreshSongs();
+    } catch (err) {
+      console.warn('Re-chart failed for', e.chart.title, err);
+    }
+  }
+  if (stale.length) status.textContent = `Updated ${stale.length} song chart${stale.length > 1 ? 's' : ''}.`;
+});
+
+/** "Artist - Title.mp3" → { artist, title } */
+function metaFromFilename(name) {
+  const base = name.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim();
+  const m = base.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+  return m ? { artist: m[1].trim(), title: m[2].trim() } : { title: base, artist: 'Auto-charted' };
+}
+
+/** Analyze decoded audio in a worker; resolves to raw chart JSON. */
+function autoChartInWorker(buffer, meta, onProgress) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./analysis.worker.js', import.meta.url), { type: 'module' });
+    const channels = [];
+    for (let c = 0; c < Math.min(2, buffer.numberOfChannels); c++) channels.push(buffer.getChannelData(c).slice());
+    worker.onmessage = (e) => {
+      const msg = e.data;
+      if (msg.type === 'progress') onProgress(msg.p);
+      else {
+        worker.terminate();
+        if (msg.type === 'done') resolve(msg.chart);
+        else reject(new Error(msg.message));
+      }
+    };
+    worker.onerror = (e) => { worker.terminate(); reject(new Error(e.message || 'Analysis failed')); };
+    worker.postMessage({ channels, sampleRate: buffer.sampleRate, meta }, channels.map((c) => c.buffer));
+  });
+}
+
 const audioInput = document.querySelector('#audio-file');
 const chartInput = document.querySelector('#chart-file');
 const status = document.querySelector('#custom-status');
 
-async function tryAddCustom() {
-  const audio = audioInput.files[0];
+audioInput.addEventListener('change', async () => {
+  const file = audioInput.files[0];
+  audioInput.value = '';
+  if (!file) return;
   const chartFile = chartInput.files[0];
-  if (!audio && !chartFile) return;
-  if (!chartFile) {
-    status.textContent = 'Now pick a chart JSON. (Auto-charting from audio is step 3 of the roadmap.)';
-    return;
-  }
-  if (!audio) {
-    status.textContent = 'Now pick the audio file for this chart.';
-    return;
-  }
-  try {
-    const chart = normalizeChart(JSON.parse(await chartFile.text()));
-    if (chart.title === 'Untitled') chart.title = audio.name.replace(/\.[^.]+$/, '');
-    game.addSong({
-      id: `custom-${chart.title}`,
-      chart,
-      load: async (engine) => engine.decode(await audio.arrayBuffer()),
-    }, true);
-    status.textContent = `Added "${chart.title}".`;
-    audioInput.value = '';
-    chartInput.value = '';
-  } catch (err) {
-    status.textContent = `Chart error: ${err.message}`;
-  }
-}
+  chartInput.value = '';
+  status.textContent = '';
+  const meta = metaFromFilename(file.name);
 
-audioInput.addEventListener('change', tryAddCustom);
-chartInput.addEventListener('change', tryAddCustom);
+  try {
+    game.setLoading(`Decoding ${file.name}…`, 0.02);
+    const buffer = await game.engine.decode(await file.arrayBuffer());
+
+    let raw;
+    if (chartFile) {
+      raw = JSON.parse(await chartFile.text());
+      raw.title ||= meta.title;
+      raw.artist ||= meta.artist;
+    } else {
+      raw = await autoChartInWorker(buffer, meta, (p) =>
+        game.setLoading(`Finding the beat in "${meta.title}"…`, 0.05 + p * 0.95));
+    }
+    normalizeChart(raw); // validate before saving
+
+    const entry = { id: `song-${Date.now()}`, chart: raw, audio: file, added: Date.now(), handMade: !!chartFile };
+    await library.save(entry);
+    addLibrarySong(entry, true);
+    game.songs[game.songs.length - 1].buffer = buffer; // already decoded
+    status.textContent = `Added "${raw.title}" · ${Math.round(raw.bpm)} BPM`;
+  } catch (err) {
+    console.error(err);
+    status.textContent = `Couldn't add that song: ${err.message}`;
+  } finally {
+    game.setLoading(null);
+  }
+});
 
 // Handy for debugging in the browser console: kysync.judge, kysync.settings, ...
 if (import.meta.env.DEV) window.kysync = game;

@@ -8,6 +8,28 @@ const FOCAL = 1;
 const Z_FAR = 3; // higher = steeper perspective
 const S_FAR = FOCAL / (FOCAL + Z_FAR);
 
+/**
+ * Beat lines visible between tStart and tEnd: [{ time, bar }].
+ * Uses the song's tracked beats when it has them (auto-charted songs), else bpm + offset.
+ */
+export function beatLines({ beats, barPhase = 0, bpm, offset = 0 }, tStart, tEnd) {
+  const out = [];
+  if (beats && beats.length) {
+    let lo = 0, hi = beats.length;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (beats[m] < tStart) lo = m + 1; else hi = m; }
+    for (let i = lo; i < beats.length && beats[i] <= tEnd; i++) {
+      out.push({ time: beats[i], bar: ((i - barPhase) % 4 + 4) % 4 === 0 });
+    }
+    return out;
+  }
+  if (!bpm) return out;
+  const beat = 60 / bpm;
+  for (let k = Math.ceil((tStart - offset) / beat); offset + k * beat <= tEnd; k++) {
+    out.push({ time: offset + k * beat, bar: ((k % 4) + 4) % 4 === 0 });
+  }
+  return out;
+}
+
 const laneCenter = (lane) => -1 + (2 * lane + 1) / LANE_COUNT;
 const laneEdge = (i) => -1 + (2 * i) / LANE_COUNT;
 
@@ -79,7 +101,7 @@ export class Renderer {
   }
 
   draw(state) {
-    const { t, judge, lookahead, keysDown, bpm, offset, duration, title, difficulty } = state;
+    const { t, judge, lookahead, keysDown, duration, title, difficulty } = state;
     const g = this.g;
     const now = performance.now();
     const frameDt = Math.min(0.1, (now - this.lastFrame) / 1000);
@@ -113,18 +135,12 @@ export class Renderer {
     }
 
     // Beat lines
-    if (bpm) {
-      const beat = 60 / bpm;
-      const first = Math.ceil((t + bottom - offset) / beat);
-      const last = Math.floor((t + look - offset) / beat);
-      for (let k = first; k <= last; k++) {
-        const dt = offset + k * beat - t;
-        const isBar = ((k % 4) + 4) % 4 === 0;
-        const fade = 1 - Math.max(0, dt / look);
-        g.strokeStyle = alpha(THEME.ink, (isBar ? 0.28 : 0.1) * fade);
-        g.lineWidth = isBar ? 1.5 : 1;
-        this._line(dt, -1, dt, 1, look);
-      }
+    for (const line of beatLines(state, t + bottom, t + look)) {
+      const dt = line.time - t;
+      const fade = 1 - Math.max(0, dt / look);
+      g.strokeStyle = alpha(THEME.ink, (line.bar ? 0.28 : 0.1) * fade);
+      g.lineWidth = line.bar ? 1.5 : 1;
+      this._line(dt, -1, dt, 1, look);
     }
 
     // Lane dividers + edges in ink, fading toward the horizon

@@ -1,10 +1,13 @@
 // Game: state machine, input, and menu/results UI wiring.
 // States: menu → loading → playing ⇄ paused → results, plus calibrate.
+// Modes: 'drum' (Taiko-style, D F J K) and 'highway' (5 lanes, D F J K L).
 
 import { LANE_COUNT, LANE_KEYS, DIFFICULTY_ORDER, LEAD_IN } from './constants.js';
 import { AudioEngine } from './audio.js';
 import { Judge } from './judge.js';
 import { Renderer } from './renderer.js';
+import { DrumJudge } from './drumJudge.js';
+import { DrumRenderer } from './drumRenderer.js';
 import { Calibration } from './calibration.js';
 
 const store = {
@@ -33,10 +36,11 @@ function gradeLetter(acc) {
 export class Game {
   constructor(canvas) {
     this.engine = new AudioEngine();
-    this.renderer = new Renderer(canvas);
+    this.renderers = { highway: new Renderer(canvas), drum: new DrumRenderer(canvas) };
     this.songs = [];
     this.selected = null;
     this.settings = {
+      mode: store.get('mode', 'drum'),
       difficulty: store.get('difficulty', 'medium'),
       speed: store.get('speed', 1.5),
       offsetMs: store.get('offsetMs', 0),
@@ -45,6 +49,7 @@ export class Game {
     this.keysDown = new Array(LANE_COUNT).fill(false);
     this.judge = null;
     this.song = null;
+    this.playMode = this.settings.mode; // mode of the song in progress
     this.duration = 0;
     this.calibration = null;
 
@@ -60,6 +65,31 @@ export class Game {
     this.songs.push(song);
     if (select || !this.selected) this.selected = song;
     this._renderSongList();
+  }
+
+  refreshSongs() {
+    this._renderSongList();
+  }
+
+  removeSong(song) {
+    this.songs = this.songs.filter((s) => s !== song);
+    if (this.selected === song) this.selected = this.songs[0] || null;
+    this._renderSongList();
+  }
+
+  /** Show the loading screen with a message, or hide it (null) and return to the menu. */
+  setLoading(text, progress = null) {
+    if (text == null) {
+      if (this.state === 'loading') this._setState('menu');
+      return;
+    }
+    $('#loading-text').textContent = text;
+    $('#loading-fill').style.width = progress == null ? '0' : `${Math.round(progress * 100)}%`;
+    if (this.state !== 'loading') this._setState('loading');
+  }
+
+  notesFor(song, mode = this.settings.mode, diff = this.settings.difficulty) {
+    return mode === 'drum' ? song.chart.drum[diff] : song.chart.difficulties[diff];
   }
 
   get offsetSec() {
@@ -79,12 +109,14 @@ export class Game {
     const song = this.selected;
     try {
       if (!song.buffer) {
-        this._setState('loading');
+        this.setLoading('Loading song…');
         song.pending ??= song.load(this.engine); // may already be preloading
         song.buffer = await song.pending;
       }
       this.song = song;
-      this.judge = new Judge(song.chart.difficulties[this.settings.difficulty]);
+      this.playMode = this.settings.mode;
+      const notes = this.notesFor(song);
+      this.judge = this.playMode === 'drum' ? new DrumJudge(notes) : new Judge(notes);
       this.duration = song.buffer.duration;
       this.keysDown.fill(false);
       this.engine.play(song.buffer, LEAD_IN);
@@ -131,13 +163,13 @@ export class Game {
   _finish() {
     this.engine.stop();
     const j = this.judge;
-    const key = `best.${this.song.id}.${this.settings.difficulty}`;
+    const key = `best.${this.playMode}.${this.song.id}.${this.settings.difficulty}`;
     const prevBest = store.get(key, 0);
     const score = Math.floor(j.score);
     if (score > prevBest) store.set(key, score);
 
     $('#r-grade').textContent = gradeLetter(j.accuracy);
-    $('#r-title').textContent = `${this.song.chart.title} · ${this.settings.difficulty}`;
+    $('#r-title').textContent = `${this.song.chart.title} · ${this.playMode} · ${this.settings.difficulty}`;
     $('#r-score').textContent = score.toLocaleString();
     $('#r-best').textContent = score > prevBest ? 'New best!' : `Best ${prevBest.toLocaleString()}`;
     $('#r-acc').textContent = `${(j.accuracy * 100).toFixed(1)}%`;
@@ -198,17 +230,30 @@ export class Game {
       t = performance.now() / 1000; // idle background scroll
     }
 
-    this.renderer.draw({
-      t,
-      judge: inGame ? this.judge : null,
-      lookahead: inGame ? this.lookahead : 1.4,
-      keysDown: this.keysDown,
-      bpm: inGame ? this.song.chart.bpm : 90,
-      offset: inGame ? this.song.chart.offset : 0,
-      duration: this.duration,
-      title: this.song?.chart.title,
-      difficulty: this.settings.difficulty,
-    });
+    const mode = inGame ? this.playMode : this.settings.mode;
+    const r = this.renderers[mode];
+    // Each frame starts from a clean canvas state, so one bad frame can't leave a clip
+    // or transform behind for the next (that's what shrank the highway before).
+    r.g.save();
+    try {
+      r.draw({
+        t,
+        judge: inGame ? this.judge : null,
+        lookahead: inGame ? this.lookahead : 1.4,
+        keysDown: this.keysDown,
+        bpm: inGame ? this.song.chart.bpm : 90,
+        offset: inGame ? this.song.chart.offset : 0,
+        beats: inGame ? this.song.chart.beats : null,
+        barPhase: inGame ? this.song.chart.barPhase : 0,
+        duration: this.duration,
+        title: this.song?.chart.title,
+        difficulty: this.settings.difficulty,
+      });
+    } catch (err) {
+      if (!this._drawErrorLogged) { console.error('Draw error:', err); this._drawErrorLogged = true; }
+    } finally {
+      r.g.restore();
+    }
 
     if (this.state === 'calibrate' && this.calibration) {
       $('#c-pulse').style.transform = `scale(${1 + this.calibration.pulse() * 0.35})`;
@@ -228,7 +273,7 @@ export class Game {
   _bindInput() {
     addEventListener('keydown', (e) => {
       const lane = LANE_KEYS.indexOf(e.code);
-      if (lane !== -1 && this.state !== 'menu') e.preventDefault();
+      if (lane !== -1 && this.state !== 'menu' && this.state !== 'loading') e.preventDefault();
       if (e.repeat) return;
 
       if (lane !== -1) {
@@ -314,6 +359,15 @@ export class Game {
       });
     }
 
+    for (const b of document.querySelectorAll('#modes button')) {
+      b.addEventListener('click', () => {
+        this.settings.mode = b.dataset.mode;
+        store.set('mode', this.settings.mode);
+        this._renderSettings();
+        this._renderSongList();
+      });
+    }
+
     const diffs = $('#diffs');
     for (const d of DIFFICULTY_ORDER) {
       const b = document.createElement('button');
@@ -337,6 +391,12 @@ export class Game {
     for (const b of document.querySelectorAll('#diffs button')) {
       b.classList.toggle('active', b.dataset.diff === s.difficulty);
     }
+    for (const b of document.querySelectorAll('#modes button')) {
+      b.classList.toggle('active', b.dataset.mode === s.mode);
+    }
+    for (const el of document.querySelectorAll('[data-for-mode]')) {
+      show(el, el.dataset.forMode === s.mode);
+    }
   }
 
   _renderSongList() {
@@ -345,11 +405,23 @@ export class Game {
     for (const song of this.songs) {
       const b = document.createElement('button');
       b.className = 'song' + (song === this.selected ? ' active' : '');
-      const notes = song.chart.difficulties[this.settings.difficulty].length;
-      const best = store.get(`best.${song.id}.${this.settings.difficulty}`, 0);
+      const notes = this.notesFor(song).length;
+      const best = store.get(`best.${this.settings.mode}.${song.id}.${this.settings.difficulty}`, 0);
       b.innerHTML = `
         <span class="song-title"></span>
         <span class="song-meta"></span>`;
+      if (song.onRemove) {
+        const x = document.createElement('span');
+        x.className = 'song-remove';
+        x.title = 'Remove song';
+        x.textContent = '×';
+        x.addEventListener('click', (e) => {
+          e.stopPropagation();
+          song.onRemove();
+          this.removeSong(song);
+        });
+        b.appendChild(x);
+      }
       b.querySelector('.song-title').textContent = song.chart.title;
       b.querySelector('.song-meta').textContent =
         `${song.chart.artist} · ${Math.round(song.chart.bpm)} BPM · ${notes} notes${best ? ` · best ${best.toLocaleString()}` : ''}`;

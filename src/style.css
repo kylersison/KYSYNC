@@ -190,6 +190,39 @@ button.small:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(42, 3
   transform: translateY(3px);
 }
 
+.seg.two { grid-template-columns: repeat(2, 1fr); }
+
+.add-song { display: flex; align-items: center; gap: 12px; margin-top: 4px; cursor: pointer; }
+.add-btn {
+  flex: none;
+  padding: 7px 12px;
+  border: 1.5px dashed var(--forest);
+  border-radius: 7px;
+  color: var(--forest);
+  font-weight: 700;
+  font-size: 14px;
+  background: rgba(47, 90, 60, 0.06);
+}
+.add-song:hover .add-btn { background: var(--forest-wash); }
+.add-song .hint { font-size: 12px; }
+
+.song { position: relative; padding-right: 36px; }
+.song-remove {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-soft);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.song-remove:hover { color: var(--vermilion); background: rgba(176, 58, 40, 0.08); }
+
+.loading-bar { height: 6px; margin-top: 12px; background: var(--ink-line); border-radius: 3px; overflow: hidden; }
+#loading-fill { height: 100%; width: 0; background: var(--forest); transition: width 0.15s; }
+
 .offset { display: flex; gap: 6px; }
 input[type='range'] { width: 100%; accent-color: var(--forest); }
 

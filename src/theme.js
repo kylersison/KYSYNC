@@ -35,7 +35,7 @@ function rng(seed) {
   };
 }
 
-/** Paint a washi texture (grain + long kozo fibers) onto an offscreen canvas. */
+/** Paint a washi texture (fine grain only) onto an offscreen canvas. */
 export function makePaper(w, h, dpr = 1, base = THEME.paper) {
   const c = document.createElement('canvas');
   c.width = Math.round(w * dpr);
@@ -50,29 +50,10 @@ export function makePaper(w, h, dpr = 1, base = THEME.paper) {
   // Grain
   const grains = Math.floor((w * h) / 45);
   for (let i = 0; i < grains; i++) {
-    g.fillStyle = rand() > 0.5 ? 'rgba(120,100,70,0.055)' : 'rgba(255,255,255,0.15)';
+    g.fillStyle = rand() > 0.5 ? 'rgba(120,100,70,0.045)' : 'rgba(255,255,255,0.12)';
     g.fillRect(rand() * w, rand() * h, 1, 1);
   }
 
-  // Kozo fibers: sparse, gently curving, mostly pale
-  const fibers = Math.floor((w * h) / 5800);
-  g.lineCap = 'round';
-  for (let i = 0; i < fibers; i++) {
-    let x = rand() * w, y = rand() * h;
-    let a = rand() * Math.PI * 2;
-    const len = 40 + rand() * 90;
-    g.beginPath();
-    g.moveTo(x, y);
-    for (let s = 0; s < len; s += 6) {
-      a += (rand() - 0.5) * 0.3;
-      x += Math.cos(a) * 6; y += Math.sin(a) * 6;
-      g.lineTo(x, y);
-    }
-    const dark = rand() < 0.1;
-    g.strokeStyle = dark ? 'rgba(150,128,92,0.08)' : 'rgba(255,253,247,0.25)';
-    g.lineWidth = 0.4 + rand() * 0.8;
-    g.stroke();
-  }
   return c;
 }
 
@@ -87,7 +68,8 @@ export function shade(hex, amount) {
 }
 
 export function roundRect(g, x, y, w, h, r) {
-  r = Math.min(r, w / 2, h / 2);
+  w = Math.max(0, w); h = Math.max(0, h);
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
   g.beginPath();
   g.moveTo(x + r, y);
   g.arcTo(x + w, y, x + w, y + h, r);
@@ -95,4 +77,40 @@ export function roundRect(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r);
   g.arcTo(x, y, x + w, y, r);
   g.closePath();
+}
+
+// Drum (Taiko) colors
+export const DRUM_COLORS = {
+  don: '#c0442e',   // vermilion: center hits
+  ka: '#2c4f7c',    // indigo: rim hits
+  roll: '#c99a22',  // yamabuki gold: drumrolls
+  wood: '#8a6a45',
+};
+
+/** A keycap: colored base, paper top that sinks when pressed. (cx, cy) is the top's center. */
+export function drawKeycap(g, cx, cy, w, h, color, pressed, label, font) {
+  const r = h * 0.3, depth = h * 0.3, sink = pressed ? depth * 0.7 : 0;
+  const x = cx - w / 2, y = cy - h / 2;
+  g.fillStyle = 'rgba(60, 45, 20, 0.18)';
+  roundRect(g, x + 1, y + depth + 3, w, h, r); g.fill();
+  g.fillStyle = shade(color, -0.18);
+  roundRect(g, x, y + depth, w, h, r); g.fill();
+  roundRect(g, x, y + sink, w, h, r);
+  g.fillStyle = pressed ? color : THEME.paperLight;
+  g.fill();
+  g.lineWidth = 2;
+  g.strokeStyle = color;
+  g.stroke();
+  if (!pressed) {
+    g.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    roundRect(g, x + w * 0.12, y + 3, w * 0.76, h * 0.14, h * 0.07); g.fill();
+  }
+  if (label) {
+    g.fillStyle = pressed ? THEME.paperLight : color;
+    g.font = `700 ${Math.round(h * 0.5)}px ${font || THEME.font}`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(label, cx, cy + sink + 1);
+    g.textBaseline = 'alphabetic';
+  }
 }
