@@ -220,6 +220,23 @@ button.small:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(42, 3
 }
 .song-remove:hover { color: var(--vermilion); background: rgba(176, 58, 40, 0.08); }
 
+/* Under the song meta: how many instruments it has, or a link to split it into them */
+.song-tag, .song-split {
+  margin-top: 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--forest);
+  border-radius: 999px;
+}
+.song-tag { padding: 1px 9px; border: 1px solid rgba(47, 90, 60, 0.35); background: var(--forest-wash); }
+.song-split { padding: 3px 10px; border: 1.5px dashed var(--forest); background: rgba(47, 90, 60, 0.05); }
+.song-split:hover { background: var(--forest); color: var(--paper-light); border-style: solid; }
+
+.seg.inst { grid-template-columns: repeat(auto-fit, minmax(74px, 1fr)); }
+.seg.inst button { text-transform: none; }
+
 .loading-bar { height: 6px; margin-top: 12px; background: var(--ink-line); border-radius: 3px; overflow: hidden; }
 #loading-fill { height: 100%; width: 0; background: var(--forest); transition: width 0.15s; }
 

@@ -35,7 +35,12 @@
           <label class="add-song">
             <input id="audio-file" type="file" accept="audio/*" hidden />
             <span class="add-btn">+ Add a song</span>
-            <span class="hint">MP3, WAV, M4A or OGG. Notes are charted automatically.</span>
+            <span class="hint">MP3, WAV, M4A or OGG. Charted automatically; split it into instruments after.</span>
+          </label>
+          <label class="add-song">
+            <input id="stem-folder" type="file" webkitdirectory multiple hidden />
+            <span class="add-btn">+ Add stems</span>
+            <span class="hint">A folder of stems (Demucs, UVR…) named vocals, drums, bass, other, guitar, piano.</span>
           </label>
           <details class="custom">
             <summary>Use a hand-made chart instead</summary>
@@ -43,6 +48,11 @@
             <p class="hint">Pick the chart first, then add the song's audio.</p>
           </details>
           <p id="custom-status" class="hint"></p>
+        </section>
+
+        <section id="instrument-section" class="hidden">
+          <h2>Instrument</h2>
+          <div id="instruments" class="seg inst"></div>
         </section>
 
         <section>

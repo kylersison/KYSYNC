@@ -20,7 +20,7 @@ const HOP = 256;  // ~11.6 ms
 
 // ---------- FFT ----------
 
-function makeFFT(n) {
+export function makeFFT(n) {
   const levels = Math.log2(n);
   const rev = new Uint32Array(n);
   for (let i = 0; i < n; i++) {
@@ -67,7 +67,7 @@ export function mixToMono(channels) {
   return out;
 }
 
-function downsample(samples, rate) {
+export function downsample(samples, rate) {
   const f = Math.max(1, Math.round(rate / TARGET_RATE));
   if (f === 1) return { data: samples, rate };
   const out = new Float32Array(Math.floor(samples.length / f));
@@ -79,7 +79,7 @@ function downsample(samples, rate) {
   return { data: out, rate: rate / f };
 }
 
-function movingMean(arr, radius) {
+export function movingMean(arr, radius) {
   const out = new Float32Array(arr.length);
   let sum = 0, lo = 0, hi = -1;
   for (let i = 0; i < arr.length; i++) {
@@ -90,7 +90,7 @@ function movingMean(arr, radius) {
   return out;
 }
 
-function percentile(arr, p) {
+export function percentile(arr, p) {
   const s = Array.from(arr).sort((a, b) => a - b);
   return s[Math.min(s.length - 1, Math.floor(p * s.length))] || 0;
 }
@@ -114,6 +114,7 @@ export function spectralFlux(samples, rate, onProgress) {
   const low = new Float32Array(frames);
   const high = new Float32Array(frames);
   const centroid = new Float32Array(frames);
+  const level = new Float32Array(frames); // RMS loudness of each frame
 
   const re = new Float64Array(N), im = new Float64Array(N);
   let prev = new Float64Array(N / 2), cur = new Float64Array(N / 2);
@@ -123,7 +124,9 @@ export function spectralFlux(samples, rate, onProgress) {
 
   for (let f = 0; f < frames; f++) {
     const off = f * HOP;
-    for (let i = 0; i < N; i++) { re[i] = data[off + i] * win[i]; im[i] = 0; }
+    let sq = 0;
+    for (let i = 0; i < N; i++) { const x = data[off + i]; sq += x * x; re[i] = x * win[i]; im[i] = 0; }
+    level[f] = Math.sqrt(sq / N);
     fft(re, im);
     let fa = 0, fl = 0, fh = 0, flin = 0, cw = 0;
     for (let k = 1; k < N / 2; k++) {
@@ -153,7 +156,7 @@ export function spectralFlux(samples, rate, onProgress) {
   // Time of flux frame 0. Frame f compares windows f-1 and f; a hit's flux peaks a little
   // after it reaches the window middle. The +11 ms was measured on synthetic drum hits.
   const t0 = (N / 2) / sr + 0.011;
-  return { all, energy, low, high, centroid, hopSec, t0, frames, duration: samples.length / rate };
+  return { all, energy, low, high, centroid, level, hopSec, t0, frames, duration: samples.length / rate };
 }
 
 // ---------- 2. tempo + beat phase ----------
@@ -294,7 +297,7 @@ const DIFFS = {
 };
 
 /** Every 16th-note position between tracked beats, with how strong the sound is there. */
-function gridSlots(flux, beats) {
+export function gridSlots(flux, beats) {
   const { all, energy, low, high, centroid, hopSec, t0 } = flux;
   // How hard each moment hits: mostly loudness (linear flux), plus some sharpness (log flux)
   // so crisp-but-quiet sounds still count a little.
@@ -330,7 +333,7 @@ function gridSlots(flux, beats) {
   return slots;
 }
 
-function pickNotes(slots, cfg, beatLen, activeBeats) {
+export function pickNotes(slots, cfg, beatLen, activeBeats) {
   const weight = (s) => (s.sub === 0 ? 1 : s.sub === 2 ? cfg.w8 : cfg.w16);
   const quota = Math.round(activeBeats * cfg.perBeat);
   const cands = slots
@@ -411,11 +414,13 @@ export function buildCharts(flux, beats) {
   return { bpm: 60 / beatLen, beats, barPhase, drum, highway };
 }
 
-const round3 = (x) => Math.round(x * 1000) / 1000;
+export const round3 = (x) => Math.round(x * 1000) / 1000;
 
-/** Full pipeline: samples → chart JSON (before normalizeChart). */
-export function autoChart(channels, sampleRate, meta = {}, onProgress = () => {}) {
-  const mono = mixToMono(channels);
+/**
+ * Mix analysis shared by every chart of a song: flux, tempo, beat grid, and the
+ * full-song charts. Progress goes 0 → 1 over this step.
+ */
+export function analyzeMix(mono, sampleRate, onProgress = () => {}) {
   const flux = spectralFlux(mono, sampleRate, onProgress);
   onProgress(0.65);
   const tempo = estimateTempo(flux);
@@ -424,6 +429,11 @@ export function autoChart(channels, sampleRate, meta = {}, onProgress = () => {}
   onProgress(0.9);
   const charts = buildCharts(flux, beats);
   onProgress(1);
+  return { flux, beats, charts };
+}
+
+/** Chart JSON for the full mix, from analyzeMix's result. */
+export function mixChartJSON(charts, meta = {}) {
   const first = charts.beats[charts.barPhase] ?? 0;
   const bar = (60 / charts.bpm) * 4;
   return {
@@ -437,4 +447,10 @@ export function autoChart(channels, sampleRate, meta = {}, onProgress = () => {}
     difficulties: charts.highway,
     drum: charts.drum,
   };
+}
+
+/** Full pipeline: samples → chart JSON (before normalizeChart). */
+export function autoChart(channels, sampleRate, meta = {}, onProgress = () => {}) {
+  const { charts } = analyzeMix(mixToMono(channels), sampleRate, onProgress);
+  return mixChartJSON(charts, meta);
 }

@@ -32,6 +32,34 @@ How auto-charting works (`src/analysis.js`):
 
 It assumes a steady tempo, so studio-recorded pop, rock, EDM and J-pop work best; live recordings or songs with tempo changes will drift.
 
+## Playing an instrument (drums, bass, vocals, lead…)
+
+Songs can be split into instrument **stems**, and each stem gets its own chart. Pick one under **Instrument** in the menu and you play just that part, in either mode: every stem plays together, and yours drops out while you miss notes and comes back when you hit (like Rock Band / Fortnite Festival). The demo song has drums, bass and lead stems built in, so you can try it right away.
+
+Two ways to get stems:
+
+1. **Split in the browser:** click **Split into instruments** on a song's card. KySync runs Meta's Demucs model (`htdemucs`, via ONNX Runtime Web on WebGPU) right in the page and gives you drums, bass, vocals and lead. The first time it downloads the model (~180 MB, then cached in the browser). With WebGPU (recent Chrome/Edge) it takes a minute or two per song; without it, it runs on the CPU and can take 10–40 minutes.
+2. **Import stems made elsewhere:** **+ Add stems** → pick a folder. Files are matched by name (`vocals`, `drums`, `bass`, `other`, `guitar`, `piano`; `instrumental`/`no_vocals` counts as other), and any other audio file in the folder is used as the full song. The folder name becomes the title, so `Artist - Title/` works. Picking a folder of song folders adds them all.
+   - `tools/split_stems.py` runs Demucs on your own computer with the 6-stem model, which adds **guitar** and **keys**:
+     ```bash
+     conda install -c conda-forge ffmpeg   # once
+     pip install demucs                     # once
+     python tools/split_stems.py "Artist - Title.mp3"
+     ```
+     Then **+ Add stems** → `stems/Artist - Title`. Ultimate Vocal Remover, Moises etc. work too.
+
+How instrument charts work (`src/instrumentChart.js`, `src/pitch.js`), all on the beat grid found in the full song:
+- **Drums:** the same hit charter as the full song, on isolated drums, so kick vs snare/hats (don vs ka) is much cleaner.
+- **Bass, guitar, keys, lead:** onsets from the stem; lane from pitch, relative to the notes around it (a higher note moves right, a repeated note stays put). Bass uses YIN pitch tracking; chordy parts use harmonic summation to find the strongest note. Notes that ring become holds.
+- **Vocals:** pitch tracked every 16 ms, cut into sung notes where the pitch moves or the singer breathes, snapped to 16ths. Long notes are holds.
+- An instrument that's barely in the song (under ~10% of the beats) isn't offered.
+
+Stems are stored in the browser as Opus (WebCodecs, ~4 MB per stem for a 4-minute song), or 16-bit PCM where WebCodecs audio isn't available.
+
+## Pausing
+
+`Esc` pauses. Resuming rewinds 3 seconds and counts 3-2-1 while the song plays back up to where you stopped, so you can catch the beat before notes count again. Keys do nothing until the count hits zero. Change the length with `RESUME_COUNTDOWN` in `src/constants.js`.
+
 Spotify can't be used as a source: it doesn't let apps access audio, and ripping streams breaks its terms. Use audio files you own.
 
 ## Controls
@@ -41,7 +69,7 @@ Spotify can't be used as a source: it doesn't let apps access audio, and ripping
 | `D` / `K` | Rim (ka), left / right | Lanes 1 / 4 |
 | `F` / `J` | Center (don), left / right | Lanes 2 / 3 |
 | `L` | – | Lane 5 |
-| `Esc` | Pause / resume | |
+| `Esc` | Pause / resume (3-2-1 countdown) | |
 | `R` | Restart | |
 | `Enter` | Play (menu), retry (results) | |
 
@@ -66,7 +94,11 @@ src/
   drumJudge.js    drum mode: don/ka, big notes, drumrolls
   chart.js        chart format, drum conversion, auto-generated easier difficulties
   analysis.js     auto-charting from audio (FFT, tempo, onsets)
+  instrumentChart.js  per-instrument charts from stems (drums, pitched parts, vocals)
+  pitch.js        pitch detection (YIN, harmonic summation) and pitch → lane mapping
   analysis.worker.js  runs analysis off the main thread
+  stems.js        splitting in the browser (Demucs) and importing stem files
+  stemCodec.js    stores stems compactly (Opus via WebCodecs, PCM fallback)
   library.js      saved songs (IndexedDB)
   theme.js        washi paper, colors, keycap drawing
   renderer.js     highway mode canvas
@@ -76,6 +108,7 @@ src/
   game.js         state machine, input, menu/results UI
   main.js         bootstrap
 charts/example.json   chart format example
+tools/split_stems.py  Demucs on your own computer (6 stems: adds guitar + keys)
 tests/                node --test
 ```
 
@@ -98,6 +131,7 @@ tests/                node --test
 - `offset` is where beat 1 lands, used for beat lines and difficulty generation.
 - `notes` is treated as Expert; Easy, Medium and Hard are generated automatically. To hand-author them instead, use `"difficulties": { "easy": [...], "expert": [...] }`.
 - Drum mode reads an optional `"drum"` list: `{ "time": 2.0, "type": "don" }` where `type` is `don`, `ka`, `bigDon`, `bigKa` or `roll` (rolls take a `duration`). Without it, the drum chart is converted from `notes`.
+- Instrument charts go under `"instruments": { "drums": { "notes": [...], "drum": [...] }, "bass": {...}, "vocals": {...} }`, each with the same fields as the top level. Instruments are `drums`, `bass`, `guitar`, `piano`, `other`, `vocals`.
 
 To use a hand-made chart: menu → **Use a hand-made chart instead** → pick the JSON, then **+ Add a song** with its audio.
 
@@ -108,6 +142,7 @@ To use a hand-made chart: menu → **Use a hand-made chart instead** → pick th
 - [x] **Step 3:** auto-charting from an uploaded audio file
 - [x] **Drum mode** (Taiko-style) alongside the highway
 - [ ] Chart editor to fix auto-charted notes
-- [ ] Instrument tracks via stem separation (drums / bass / vocals / lead)
+- [x] Instrument tracks via stem separation (drums / bass / vocals / lead, plus guitar / keys from 6-stem Demucs)
+- [x] 3-2-1 countdown after unpausing
 - [ ] Spotify search + metadata (album art, playlists); audio still comes from the player's own files
 

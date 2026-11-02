@@ -28,3 +28,10 @@ export const DIFFICULTY_ORDER = ['easy', 'medium', 'hard', 'expert'];
 
 // Seconds of silence before the song starts, so the first notes can scroll in.
 export const LEAD_IN = 2.0;
+
+// After unpausing, the song rewinds this many seconds and counts 3-2-1 while it plays
+// back up to where you paused. Input is ignored until the count reaches zero.
+export const RESUME_COUNTDOWN = 3;
+
+// Playing an instrument: its track drops to this volume while you're missing notes.
+export const DUCK_LEVEL = 0.12;

@@ -166,8 +166,13 @@ function lead(ctx, out, t, freq, len) {
   }
 }
 
-/** Render the demo song to an AudioBuffer that plays exactly like an uploaded file. */
-export async function renderDemoAudio(chart, sampleRate = 44100) {
+const PARTS = ['drums', 'bass', 'other'];
+
+/**
+ * Render the demo song to an AudioBuffer that plays exactly like an uploaded file.
+ * `parts` picks which instruments to include (all of them by default).
+ */
+export async function renderDemoAudio(chart, sampleRate = 44100, parts = PARTS) {
   const ctx = new OfflineAudioContext(2, Math.ceil(DEMO_LENGTH * sampleRate), sampleRate);
   const comp = ctx.createDynamicsCompressor();
   const master = ctx.createGain();
@@ -179,22 +184,60 @@ export async function renderDemoAudio(chart, sampleRate = 44100) {
   for (let bar = 0; bar < totalBars; bar++) {
     const b0 = OFFSET + bar * BAR;
     const playing = bar >= COUNT_IN_BARS && bar < COUNT_IN_BARS + PLAY_BARS;
-    for (let e = 0; e < 8; e++) {
-      const t = b0 + e * EIGHTH;
-      if (bar < totalBars - 1 || e === 0) hat(ctx, master, t, noise, e % 2 === 1 && playing);
-      if (e % 2 === 0 && (playing || e === 0 || bar < COUNT_IN_BARS)) kick(ctx, master, t);
-      if (playing && (e === 2 || e === 6)) snare(ctx, master, t, noise);
+    if (parts.includes('drums')) {
+      for (let e = 0; e < 8; e++) {
+        const t = b0 + e * EIGHTH;
+        if (bar < totalBars - 1 || e === 0) hat(ctx, master, t, noise, e % 2 === 1 && playing);
+        if (e % 2 === 0 && (playing || e === 0 || bar < COUNT_IN_BARS)) kick(ctx, master, t);
+        if (playing && (e === 2 || e === 6)) snare(ctx, master, t, noise);
+      }
     }
-    if (playing) {
+    if (playing && parts.includes('bass')) {
       const root = BASS_FREQS[(bar - COUNT_IN_BARS) % 4];
       for (let e = 0; e < 8; e += 2) bass(ctx, master, b0 + e * EIGHTH, root, BEAT * 0.9);
     }
   }
 
-  for (const n of chart.notes) {
-    const len = n.duration > 0 ? n.duration : EIGHTH * 0.8;
-    lead(ctx, master, n.time, LEAD_FREQS[n.lane], len);
+  if (parts.includes('other')) {
+    for (const n of chart.notes) {
+      const len = n.duration > 0 ? n.duration : EIGHTH * 0.8;
+      lead(ctx, master, n.time, LEAD_FREQS[n.lane], len);
+    }
   }
 
   return ctx.startRendering();
+}
+
+/** The demo as separate instrument stems, rendered straight from the synth (perfect isolation). */
+export async function renderDemoStems(chart, sampleRate = 44100) {
+  const buffers = await Promise.all(PARTS.map((p) => renderDemoAudio(chart, sampleRate, [p])));
+  return Object.fromEntries(PARTS.map((p, i) => [p, buffers[i]]));
+}
+
+/**
+ * Instrument charts for the demo, written from the same schedule the synth plays,
+ * so they're exact: lead = the main chart, plus drums and bass.
+ */
+export function buildDemoInstruments(chart) {
+  const drums = [], taiko = [], bassNotes = [];
+  // bass roots C2, A1, F1, G1 → lanes by pitch (F lowest … C highest)
+  const BASS_LANE = [3, 2, 0, 1];
+  for (let bar = COUNT_IN_BARS; bar < COUNT_IN_BARS + PLAY_BARS; bar++) {
+    const b0 = OFFSET + bar * BAR;
+    for (let e = 0; e < 8; e++) {
+      const time = Math.round((b0 + e * EIGHTH) * 1000) / 1000;
+      if (e % 2 === 1) { drums.push({ time, lane: 4, duration: 0 }); continue; } // open hat
+      const snareHit = e === 2 || e === 6;
+      drums.push({ time, lane: 1, duration: 0 });
+      if (snareHit) drums.push({ time, lane: 3, duration: 0 });
+      const big = e === 0 && (bar - COUNT_IN_BARS) % 4 === 0;
+      taiko.push({ time, type: snareHit ? 'ka' : big ? 'bigDon' : 'don' });
+      bassNotes.push({ time, lane: BASS_LANE[(bar - COUNT_IN_BARS) % 4], duration: 0 });
+    }
+  }
+  return {
+    drums: { notes: drums, drum: taiko },
+    bass: { notes: bassNotes },
+    other: { notes: chart.notes },
+  };
 }

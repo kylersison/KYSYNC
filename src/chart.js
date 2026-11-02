@@ -64,12 +64,8 @@ export function deriveDifficulties(expert, bpm, offset = 0) {
   return { easy, medium, hard, expert };
 }
 
-/** Validate a chart object and fill in any missing difficulties. */
-export function normalizeChart(raw) {
-  if (!raw || typeof raw !== 'object') throw new Error('Chart must be a JSON object');
-  const bpm = Number(raw.bpm) || 120;
-  const offset = Number(raw.offset) || 0;
-
+/** Highway + drum charts for one part (the full song, or one instrument). */
+function normalizeParts(raw, bpm, offset) {
   let given = {};
   if (raw.difficulties) {
     for (const [k, v] of Object.entries(raw.difficulties)) given[k] = cleanNotes(v);
@@ -97,6 +93,37 @@ export function normalizeChart(raw) {
   const drumDerived = deriveDrumDifficulties(drumBase, bpm, offset);
   const drum = {};
   for (const d of DIFFICULTY_ORDER) drum[d] = drumGiven[d] ?? drumDerived[d];
+  return { difficulties, drum };
+}
+
+/** Instruments that can be played on their own, in menu order. */
+export const INSTRUMENTS = ['drums', 'bass', 'guitar', 'piano', 'other', 'vocals'];
+
+/** Menu name for an instrument. 'other' is the lead line unless guitar/keys have their own stems. */
+export function instrumentLabel(name, available = []) {
+  if (name === 'other') return available.includes('guitar') || available.includes('piano') ? 'Other' : 'Lead';
+  return { mix: 'Full song', drums: 'Drums', bass: 'Bass', guitar: 'Guitar', piano: 'Keys', vocals: 'Vocals' }[name] || name;
+}
+
+/**
+ * Validate a chart object and fill in any missing difficulties.
+ * Songs split into stems also carry { instruments: { drums: { difficulties, drum }, ... } }.
+ */
+export function normalizeChart(raw) {
+  if (!raw || typeof raw !== 'object') throw new Error('Chart must be a JSON object');
+  const bpm = Number(raw.bpm) || 120;
+  const offset = Number(raw.offset) || 0;
+  const { difficulties, drum } = normalizeParts(raw, bpm, offset);
+
+  const instruments = {};
+  if (raw.instruments && typeof raw.instruments === 'object') {
+    for (const name of INSTRUMENTS) {
+      if (!raw.instruments[name]) continue;
+      try {
+        instruments[name] = normalizeParts(raw.instruments[name], bpm, offset);
+      } catch { /* an empty or broken instrument chart just isn't offered */ }
+    }
+  }
 
   return {
     title: raw.title || 'Untitled',
@@ -105,6 +132,7 @@ export function normalizeChart(raw) {
     offset,
     difficulties,
     drum,
+    instruments,
     beats: Array.isArray(raw.beats) ? raw.beats.map(Number).filter(Number.isFinite) : null,
     barPhase: Number(raw.barPhase) || 0,
   };

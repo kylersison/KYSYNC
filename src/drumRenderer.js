@@ -2,7 +2,7 @@
 // The drum on the left lights up per side: D = left rim, F = left center, J = right center, K = right rim.
 
 import { Renderer, beatLines } from './renderer.js';
-import { THEME, DRUM_COLORS, GRADE_STYLE, shade, roundRect, drawKeycap } from './theme.js';
+import { THEME, DRUM_COLORS, GRADE_STYLE, shade, roundRect, drawKeycap, drawCountdown } from './theme.js';
 
 const KEY_INFO = [
   { label: 'D', kind: 'ka', side: 'L' },
@@ -169,13 +169,7 @@ export class DrumRenderer extends Renderer {
 
     if (judge) this._drawHud(judge, t, duration, title, difficulty);
 
-    if (t < 0) {
-      const n = Math.ceil(-t);
-      g.fillStyle = THEME.ink;
-      g.font = `800 ${Math.round(this.h * 0.12)}px ${THEME.fontDisplay}`;
-      g.textAlign = 'center';
-      if (n > 0) g.fillText(String(n), (this.w + this.panelW) / 2, this.laneY + this.laneH * 1.6);
-    }
+    drawCountdown(g, state, (this.w + this.panelW) / 2, this.laneY + this.laneH * 1.6, this.h);
   }
 
   // A drum note: a dyed disc on a darker base with a paper ring, like a keycap seen from above

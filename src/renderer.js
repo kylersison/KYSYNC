@@ -2,7 +2,7 @@
 // Washi theme: paper texture, sumi ink lines, dye-colored notes.
 
 import { LANE_COUNT, LANE_LABELS } from './constants.js';
-import { THEME, LANE_COLORS, GRADE_STYLE, makePaper, shade, roundRect } from './theme.js';
+import { THEME, LANE_COLORS, GRADE_STYLE, makePaper, shade, roundRect, drawCountdown } from './theme.js';
 
 const FOCAL = 1;
 const Z_FAR = 3; // higher = steeper perspective
@@ -212,14 +212,8 @@ export class Renderer {
 
     if (judge) this._drawHud(judge, t, duration, title, difficulty);
 
-    // Lead-in countdown
-    if (t < 0) {
-      const n = Math.ceil(-t);
-      g.fillStyle = THEME.ink;
-      g.font = `800 ${Math.round(this.h * 0.12)}px ${THEME.fontDisplay}`;
-      g.textAlign = 'center';
-      if (n > 0) g.fillText(String(n), this.cx, this.h * 0.42);
-    }
+    // Lead-in countdown, or the 3-2-1 after unpausing
+    drawCountdown(g, state, this.cx, this.h * 0.42, this.h);
   }
 
   // Lane targets are keycaps sitting on the hit line; pressing pushes them down.

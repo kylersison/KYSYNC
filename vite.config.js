@@ -6,4 +6,6 @@ import { defineConfig } from 'vite';
 export default defineConfig(({ command, isPreview }) => ({
   base: command === 'build' || isPreview ? '/KYSYNC/' : '/',
   worker: { format: 'es' },
+  // onnxruntime-web finds its .wasm next to itself; pre-bundling it in dev breaks that path.
+  optimizeDeps: { exclude: ['onnxruntime-web'] },
 }));

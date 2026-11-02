@@ -1,14 +1,19 @@
 // Game: state machine, input, and menu/results UI wiring.
-// States: menu → loading → playing ⇄ paused → results, plus calibrate.
+// States: menu → loading → playing ⇄ paused → countdown → playing → results, plus calibrate.
 // Modes: 'drum' (Taiko-style, D F J K) and 'highway' (5 lanes, D F J K L).
+// Instruments: 'mix' (the whole song) or one stem (drums, bass, vocals, …) for songs that
+// have been split. Playing an instrument plays every stem, and yours drops out when you miss.
 
-import { LANE_COUNT, LANE_KEYS, DIFFICULTY_ORDER, LEAD_IN } from './constants.js';
+import {
+  LANE_COUNT, LANE_KEYS, DIFFICULTY_ORDER, LEAD_IN, RESUME_COUNTDOWN, DUCK_LEVEL,
+} from './constants.js';
 import { AudioEngine } from './audio.js';
 import { Judge } from './judge.js';
 import { Renderer } from './renderer.js';
 import { DrumJudge } from './drumJudge.js';
 import { DrumRenderer } from './drumRenderer.js';
 import { Calibration } from './calibration.js';
+import { INSTRUMENTS, instrumentLabel } from './chart.js';
 
 const store = {
   get(key, fallback) {
@@ -42,6 +47,7 @@ export class Game {
     this.settings = {
       mode: store.get('mode', 'drum'),
       difficulty: store.get('difficulty', 'medium'),
+      instrument: store.get('instrument', 'mix'),
       speed: store.get('speed', 1.5),
       offsetMs: store.get('offsetMs', 0),
       volume: store.get('volume', 80),
@@ -51,9 +57,13 @@ export class Game {
     this.keysDown = new Array(LANE_COUNT).fill(false);
     this.judge = null;
     this.song = null;
-    this.playMode = this.settings.mode; // mode of the song in progress
+    this.playMode = this.settings.mode;  // mode of the song in progress
+    this.playInstrument = 'mix';         // instrument of the song in progress
+    this.duckTrack = null;               // stem that drops out on misses
+    this.resumeAt = 0;                   // song time where the resume countdown hands back control
     this.duration = 0;
     this.calibration = null;
+    this.onSplit = null;                 // set by main.js: (song) => split it into instruments
 
     this._bindInput();
     this._bindMenu();
@@ -90,8 +100,25 @@ export class Game {
     if (this.state !== 'loading') this._setState('loading');
   }
 
-  notesFor(song, mode = this.settings.mode, diff = this.settings.difficulty) {
-    return mode === 'drum' ? song.chart.drum[diff] : song.chart.difficulties[diff];
+  /** Instruments this song can be played as (besides the full song). */
+  instrumentsOf(song) {
+    const have = song?.chart.instruments || {};
+    return INSTRUMENTS.filter((n) => have[n]);
+  }
+
+  /** The instrument that will actually be played for this song. */
+  instrumentFor(song) {
+    const want = this.settings.instrument;
+    return want !== 'mix' && this.instrumentsOf(song).includes(want) ? want : 'mix';
+  }
+
+  notesFor(song, mode = this.settings.mode, diff = this.settings.difficulty, inst = this.instrumentFor(song)) {
+    const part = inst === 'mix' ? song.chart : song.chart.instruments[inst];
+    return mode === 'drum' ? part.drum[diff] : part.difficulties[diff];
+  }
+
+  _bestKey(song, mode, diff, inst) {
+    return `best.${mode}.${song.id}.${diff}${inst === 'mix' ? '' : `.${inst}`}`;
   }
 
   get offsetSec() {
@@ -104,24 +131,54 @@ export class Game {
 
   // ---------- flow ----------
 
+  /** The audio tracks for a song: the mix alone, or every stem (decoded once, then cached). */
+  async _tracksFor(song, inst) {
+    const useMix = inst === 'mix' && song.load;
+    if (useMix) {
+      if (!song.buffer) {
+        this.setLoading('Loading song…');
+        song.pending ??= song.load(this.engine); // may already be preloading
+        song.buffer = await song.pending;
+      }
+      return song.buffer;
+    }
+    if (!song.stemBuffers) {
+      this.setLoading('Loading instruments…', song.stemPending ? null : 0);
+      this._loadStems(song, (p) => this.setLoading('Loading instruments…', p));
+      song.stemBuffers = await song.stemPending;
+    }
+    return Object.entries(song.stemBuffers).map(([name, buffer]) => ({ name, buffer }));
+  }
+
+  /** Start decoding a song's stems (once). Stems are big once decoded, so only one song keeps them. */
+  _loadStems(song, onProgress = () => {}) {
+    if (!song?.loadStems || song.stemBuffers || song.stemPending) return;
+    for (const s of this.songs) if (s !== song) { s.stemBuffers = null; s.stemPending = null; }
+    song.stemPending = song.loadStems(onProgress).then((buffers) => {
+      if (song.stemPending) song.stemBuffers = buffers; // unless another song took over meanwhile
+      return buffers;
+    });
+    song.stemPending.catch((err) => { console.warn('Could not load instruments:', err); song.stemPending = null; });
+  }
+
   async start() {
     if (this.busy || !this.selected) return;
     this.busy = true;
     this.engine.ensure(); // unlock audio inside the user gesture
     const song = this.selected;
     try {
-      if (!song.buffer) {
-        this.setLoading('Loading song…');
-        song.pending ??= song.load(this.engine); // may already be preloading
-        song.buffer = await song.pending;
-      }
+      const inst = this.instrumentFor(song);
+      const tracks = await this._tracksFor(song, inst);
       this.song = song;
       this.playMode = this.settings.mode;
-      const notes = this.notesFor(song);
+      this.playInstrument = inst;
+      this.duckTrack = inst !== 'mix' && song.stemBuffers?.[inst] ? inst : null;
+      const notes = this.notesFor(song, this.playMode, this.settings.difficulty, inst);
       this.judge = this.playMode === 'drum' ? new DrumJudge(notes) : new Judge(notes);
-      this.duration = song.buffer.duration;
+      const list = tracks instanceof AudioBuffer ? [tracks] : tracks.map((t) => t.buffer);
+      this.duration = Math.max(...list.map((b) => b.duration));
       this.keysDown.fill(false);
-      this.engine.play(song.buffer, LEAD_IN);
+      this.engine.play(tracks, LEAD_IN);
       this._setState('playing');
     } catch (err) {
       console.error(err);
@@ -141,16 +198,29 @@ export class Game {
   }
 
   async pause() {
+    if (this.state === 'countdown') {
+      // Paused again mid-count: stay frozen at the spot the count was heading for.
+      this._setState('paused');
+      await this.engine.pause(this.resumeAt);
+      return;
+    }
     if (this.state !== 'playing') return;
     this._releaseAll();
     await this.engine.pause();
     this._setState('paused');
   }
 
+  /**
+   * Unpause with a 3-2-1: the song rewinds RESUME_COUNTDOWN seconds and plays back up to
+   * where you paused, so you can catch the beat before your notes count again.
+   */
   async resume() {
     if (this.state !== 'paused') return;
-    this._setState('playing');
-    await this.engine.resume();
+    this.resumeAt = this.engine.now();
+    this._setState('countdown');
+    await this.engine.resumeFrom(this.resumeAt - RESUME_COUNTDOWN);
+    // Paused again while the audio was waking up: freeze where the count was heading.
+    if (this.state === 'paused') await this.engine.pause(this.resumeAt);
   }
 
   quitToMenu() {
@@ -165,13 +235,15 @@ export class Game {
   _finish() {
     this.engine.stop();
     const j = this.judge;
-    const key = `best.${this.playMode}.${this.song.id}.${this.settings.difficulty}`;
+    const inst = this.playInstrument;
+    const key = this._bestKey(this.song, this.playMode, this.settings.difficulty, inst);
     const prevBest = store.get(key, 0);
     const score = Math.floor(j.score);
     if (score > prevBest) store.set(key, score);
 
+    const instName = inst === 'mix' ? '' : ` · ${instrumentLabel(inst, this.instrumentsOf(this.song)).toLowerCase()}`;
     $('#r-grade').textContent = gradeLetter(j.accuracy);
-    $('#r-title').textContent = `${this.song.chart.title} · ${this.playMode} · ${this.settings.difficulty}`;
+    $('#r-title').textContent = `${this.song.chart.title} · ${this.playMode}${instName} · ${this.settings.difficulty}`;
     $('#r-score').textContent = score.toLocaleString();
     $('#r-best').textContent = score > prevBest ? 'New best!' : `Best ${prevBest.toLocaleString()}`;
     $('#r-acc').textContent = `${(j.accuracy * 100).toFixed(1)}%`;
@@ -216,15 +288,30 @@ export class Game {
 
   // ---------- loop ----------
 
+  /** Your instrument fades out while you miss and comes straight back when you hit. */
+  _duckFromEvents() {
+    if (!this.duckTrack || !this.judge) return;
+    for (const e of this.judge.events) {
+      if (e.type === 'hit' || e.type === 'roll' || e.type === 'bigBonus') this.engine.setTrackGain(this.duckTrack, 1);
+      else if (e.type === 'miss' || e.type === 'holdBreak') this.engine.setTrackGain(this.duckTrack, DUCK_LEVEL);
+    }
+  }
+
   _loop() {
     requestAnimationFrame((ts) => this._loop(ts));
-    const inGame = this.state === 'playing' || this.state === 'paused';
+    const inGame = this.state === 'playing' || this.state === 'paused' || this.state === 'countdown';
     let t;
+    let countdown = null;
 
     if (inGame) {
       t = this.engine.now();
+      if (this.state === 'countdown') {
+        countdown = this.resumeAt - t;
+        if (countdown <= 0) { this._setState('playing'); countdown = null; }
+      }
       if (this.state === 'playing') {
         this.judge.update(t - this.offsetSec);
+        this._duckFromEvents();
         const done = this.judge.isFinished() && t > this.judge.lastNoteEnd + 1.5;
         if (done || t > this.duration + 0.25) this._finish();
       }
@@ -234,12 +321,16 @@ export class Game {
 
     const mode = inGame ? this.playMode : this.settings.mode;
     const r = this.renderers[mode];
+    const diff = this.settings.difficulty;
+    const instName = inGame && this.playInstrument !== 'mix'
+      ? `${instrumentLabel(this.playInstrument, this.instrumentsOf(this.song))} · ${diff}` : diff;
     // Each frame starts from a clean canvas state, so one bad frame can't leave a clip
     // or transform behind for the next (that's what shrank the highway before).
     r.g.save();
     try {
       r.draw({
         t,
+        countdown,
         judge: inGame ? this.judge : null,
         lookahead: inGame ? this.lookahead : 1.4,
         keysDown: this.keysDown,
@@ -249,7 +340,7 @@ export class Game {
         barPhase: inGame ? this.song.chart.barPhase : 0,
         duration: this.duration,
         title: this.song?.chart.title,
-        difficulty: this.settings.difficulty,
+        difficulty: instName,
       });
     } catch (err) {
       if (!this._drawErrorLogged) { console.error('Draw error:', err); this._drawErrorLogged = true; }
@@ -287,6 +378,7 @@ export class Game {
 
       switch (this.state) {
         case 'playing':
+        case 'countdown':
           if (e.code === 'Escape') this.pause();
           else if (e.code === 'KeyR') this.restart();
           break;
@@ -320,7 +412,7 @@ export class Game {
 
     // Losing focus while holding a key would leave a hold stuck forever.
     addEventListener('blur', () => {
-      if (this.state === 'playing') this.pause();
+      if (this.state === 'playing' || this.state === 'countdown') this.pause();
       else this.keysDown.fill(false);
     });
   }
@@ -413,14 +505,41 @@ export class Game {
     }
   }
 
+  /** Instrument picker for the selected song (hidden for songs that haven't been split). */
+  _renderInstruments() {
+    const song = this.selected;
+    const avail = this.instrumentsOf(song);
+    show($('#instrument-section'), avail.length > 0);
+    const box = $('#instruments');
+    box.innerHTML = '';
+    if (!avail.length) return;
+    const current = this.instrumentFor(song);
+    for (const name of ['mix', ...avail]) {
+      const b = document.createElement('button');
+      b.textContent = instrumentLabel(name, avail);
+      b.dataset.inst = name;
+      b.classList.toggle('active', name === current);
+      b.addEventListener('click', () => {
+        this.settings.instrument = name;
+        store.set('instrument', name);
+        this._renderSongList();
+      });
+      box.appendChild(b);
+    }
+    // Picking an instrument starts decoding its stems now, so Play is quick.
+    if (current !== 'mix') this._loadStems(song);
+  }
+
   _renderSongList() {
     const list = $('#song-list');
     list.innerHTML = '';
     for (const song of this.songs) {
       const b = document.createElement('button');
       b.className = 'song' + (song === this.selected ? ' active' : '');
-      const notes = this.notesFor(song).length;
-      const best = store.get(`best.${this.settings.mode}.${song.id}.${this.settings.difficulty}`, 0);
+      const inst = this.instrumentFor(song);
+      const notes = this.notesFor(song, this.settings.mode, this.settings.difficulty, inst).length;
+      const best = store.get(this._bestKey(song, this.settings.mode, this.settings.difficulty, inst), 0);
+      const parts = this.instrumentsOf(song).length;
       b.innerHTML = `
         <span class="song-title"></span>
         <span class="song-meta"></span>`;
@@ -437,10 +556,28 @@ export class Game {
         b.appendChild(x);
       }
       b.querySelector('.song-title').textContent = song.chart.title;
+      const instText = inst === 'mix' ? '' : ` · ${instrumentLabel(inst, this.instrumentsOf(song))}`;
       b.querySelector('.song-meta').textContent =
-        `${song.chart.artist} · ${Math.round(song.chart.bpm)} BPM · ${notes} notes${best ? ` · best ${best.toLocaleString()}` : ''}`;
+        `${song.chart.artist} · ${Math.round(song.chart.bpm)} BPM${instText} · ${notes} notes${best ? ` · best ${best.toLocaleString()}` : ''}`;
+      if (parts) {
+        const tag = document.createElement('span');
+        tag.className = 'song-tag';
+        tag.textContent = `${parts} instrument${parts > 1 ? 's' : ''}`;
+        b.appendChild(tag);
+      } else if (song.canSplit && this.onSplit) {
+        const split = document.createElement('span');
+        split.className = 'song-split';
+        split.title = 'Split this song into drums, bass, vocals and lead so you can play any of them';
+        split.textContent = 'Split into instruments';
+        split.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this.onSplit(song);
+        });
+        b.appendChild(split);
+      }
       b.addEventListener('click', () => { this.selected = song; this._renderSongList(); });
       list.appendChild(b);
     }
+    this._renderInstruments();
   }
 }

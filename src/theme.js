@@ -114,3 +114,37 @@ export function drawKeycap(g, cx, cy, w, h, color, pressed, label, font) {
     g.textBaseline = 'alphabetic';
   }
 }
+
+/**
+ * The big count in the play area: the lead-in before a song starts (t < 0), or the
+ * 3-2-1 after unpausing (state.countdown = seconds left). The resume count sits on a
+ * paper disc with a green ring that drains each second, so it reads over moving notes.
+ */
+export function drawCountdown(g, state, x, y, h) {
+  const left = state.countdown ?? (state.t < 0 ? -state.t : 0);
+  if (!(left > 0)) return;
+  const n = Math.ceil(left);
+  const frac = n - left; // 0 when this number appears → 1 just before the next
+  const size = Math.round(h * 0.12);
+  const cy = y - size * 0.36;
+  g.save();
+  g.textAlign = 'center';
+  if (state.countdown != null) {
+    const r = size * 0.78;
+    g.fillStyle = 'rgba(60, 45, 20, 0.18)';
+    g.beginPath(); g.arc(x + 2, cy + 4, r, 0, Math.PI * 2); g.fill();
+    g.fillStyle = THEME.paperLight;
+    g.beginPath(); g.arc(x, cy, r, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = THEME.inkFaint;
+    g.lineWidth = 2;
+    g.stroke();
+    g.strokeStyle = THEME.accent;
+    g.lineWidth = 4;
+    g.lineCap = 'round';
+    g.beginPath(); g.arc(x, cy, r - 6, -Math.PI / 2, -Math.PI / 2 + (1 - frac) * Math.PI * 2); g.stroke();
+  }
+  g.fillStyle = THEME.ink;
+  g.font = `800 ${Math.round(size * (1.06 - 0.06 * frac))}px ${THEME.fontDisplay}`;
+  g.fillText(String(n), x, y);
+  g.restore();
+}
