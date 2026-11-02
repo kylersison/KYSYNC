@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ebdfc4" />
     <title>KySync</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><ellipse cx=%2216%22 cy=%2218%22 rx=%2213%22 ry=%226%22 fill=%22%232f5a3c%22/></svg>" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -12,77 +13,138 @@
   <body>
     <canvas id="game"></canvas>
 
-    <!-- Main menu -->
+    <!-- Main menu: two columns on wide screens (song picking | play settings) -->
     <div id="menu" class="overlay">
-      <div class="panel">
-        <div class="brand">
-          <h1 class="logo">KY<span>SYNC</span></h1>
-          <span class="seal" aria-hidden="true">拍</span>
-        </div>
-        <p class="tagline">keyboard rhythm prototype</p>
+      <div class="panel menu-panel">
+        <header class="menu-head">
+          <div>
+            <div class="brand">
+              <h1 class="logo">KY<span>SYNC</span></h1>
+              <span class="seal" aria-hidden="true">拍</span>
+            </div>
+            <p class="tagline">keyboard rhythm prototype</p>
+          </div>
+          <button id="open-theme" class="small theme-btn" title="Colors, brightness and scenery">
+            <span class="theme-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+            Theme · <span id="theme-label"></span>
+          </button>
+        </header>
 
+        <div class="menu-cols">
+          <div class="menu-col">
+            <section>
+              <h2>Mode</h2>
+              <div id="modes" class="seg two">
+                <button data-mode="drum">Drum</button>
+                <button data-mode="highway">Highway</button>
+              </div>
+            </section>
+
+            <section>
+              <h2>Song</h2>
+              <div id="song-list"></div>
+              <label class="add-song">
+                <input id="audio-file" type="file" accept="audio/*" hidden />
+                <span class="add-btn">+ Add a song</span>
+                <span class="hint">MP3, WAV, M4A or OGG. Charted automatically; split it into instruments after.</span>
+              </label>
+              <label class="add-song">
+                <input id="stem-folder" type="file" webkitdirectory multiple hidden />
+                <span class="add-btn">+ Add stems</span>
+                <span class="hint">A folder of stems (Demucs, UVR…) named vocals, drums, bass, other, guitar, piano.</span>
+              </label>
+              <details class="custom">
+                <summary>Use a hand-made chart instead</summary>
+                <label>Chart JSON <input id="chart-file" type="file" accept=".json,application/json" /></label>
+                <p class="hint">Pick the chart first, then add the song's audio.</p>
+              </details>
+              <p id="custom-status" class="hint"></p>
+            </section>
+          </div>
+
+          <div class="menu-col">
+            <section id="instrument-section" class="hidden">
+              <h2>Instrument</h2>
+              <div id="instruments" class="seg inst"></div>
+            </section>
+
+            <section>
+              <h2>Difficulty</h2>
+              <div id="diffs" class="seg"></div>
+            </section>
+
+            <div class="row">
+              <section>
+                <h2>Note speed <span id="speed-label" class="val"></span></h2>
+                <input id="speed" type="range" min="1" max="3" step="0.25" />
+              </section>
+              <section>
+                <h2>Audio offset <span id="offset-label" class="val"></span></h2>
+                <div class="offset">
+                  <button id="offset-down" class="small">−5</button>
+                  <button id="offset-up" class="small">+5</button>
+                  <button id="calibrate" class="small">Calibrate</button>
+                </div>
+              </section>
+            </div>
+
+            <section>
+              <h2>Volume <span class="val volume-label"></span></h2>
+              <input id="volume" class="volume-slider" type="range" min="0" max="100" step="1" />
+            </section>
+
+            <button id="play" class="primary">Play</button>
+            <p class="keys" data-for-mode="drum"><kbd>D</kbd><kbd>K</kbd> rim (ka) &nbsp;·&nbsp; <kbd>F</kbd><kbd>J</kbd> center (don) &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>R</kbd> restart</p>
+            <p class="keys" data-for-mode="highway"><kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> hit &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>R</kbd> restart</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Theme editor: sits at the side so the game behind it shows a live preview -->
+    <div id="theme" class="overlay side hidden">
+      <div class="panel theme-panel">
+        <header class="theme-head">
+          <h2 class="big">Theme</h2>
+          <div class="theme-head-actions">
+            <div id="t-preview" class="seg two" title="Preview the theme in this mode (hold your lane keys to see pressed keys)">
+              <button data-mode="drum">Drum</button>
+              <button data-mode="highway">Highway</button>
+            </div>
+            <button id="t-done" class="small">Done</button>
+          </div>
+        </header>
         <section>
-          <h2>Mode</h2>
-          <div id="modes" class="seg two">
-            <button data-mode="drum">Drum</button>
-            <button data-mode="highway">Highway</button>
+          <h2>Presets &amp; your themes</h2>
+          <div id="theme-list" class="theme-list"></div>
+        </section>
+        <section class="comfort">
+          <label>
+            <h2>Brightness <span id="t-brightness-label" class="val"></span></h2>
+            <input id="t-brightness" type="range" min="50" max="100" step="1" />
+          </label>
+          <label>
+            <h2>Paper texture <span id="t-grain-label" class="val"></span></h2>
+            <input id="t-grain" type="range" min="0" max="100" step="1" />
+          </label>
+          <div class="scenery">
+            <h2>Mountains <span id="t-scenery-label" class="val"></span></h2>
+            <div class="scenery-row">
+              <button id="t-scenery" class="small" aria-pressed="true">On</button>
+              <input id="t-scenery-strength" type="range" min="10" max="100" step="1" aria-label="Mountain strength" />
+            </div>
           </div>
         </section>
-
         <section>
-          <h2>Song</h2>
-          <div id="song-list"></div>
-          <label class="add-song">
-            <input id="audio-file" type="file" accept="audio/*" hidden />
-            <span class="add-btn">+ Add a song</span>
-            <span class="hint">MP3, WAV, M4A or OGG. Charted automatically; split it into instruments after.</span>
-          </label>
-          <label class="add-song">
-            <input id="stem-folder" type="file" webkitdirectory multiple hidden />
-            <span class="add-btn">+ Add stems</span>
-            <span class="hint">A folder of stems (Demucs, UVR…) named vocals, drums, bass, other, guitar, piano.</span>
-          </label>
-          <details class="custom">
-            <summary>Use a hand-made chart instead</summary>
-            <label>Chart JSON <input id="chart-file" type="file" accept=".json,application/json" /></label>
-            <p class="hint">Pick the chart first, then add the song's audio.</p>
-          </details>
-          <p id="custom-status" class="hint"></p>
+          <h2>Colors</h2>
+          <div id="theme-colors"></div>
         </section>
-
-        <section id="instrument-section" class="hidden">
-          <h2>Instrument</h2>
-          <div id="instruments" class="seg inst"></div>
-        </section>
-
-        <section>
-          <h2>Difficulty</h2>
-          <div id="diffs" class="seg"></div>
-        </section>
-
-        <div class="row">
-          <section>
-            <h2>Note speed <span id="speed-label" class="val"></span></h2>
-            <input id="speed" type="range" min="1" max="3" step="0.25" />
-          </section>
-          <section>
-            <h2>Audio offset <span id="offset-label" class="val"></span></h2>
-            <div class="offset">
-              <button id="offset-down" class="small">−5</button>
-              <button id="offset-up" class="small">+5</button>
-              <button id="calibrate" class="small">Calibrate</button>
-            </div>
-          </section>
+        <div class="theme-actions">
+          <button id="t-save" class="small">Save this theme</button>
+          <button id="t-export" class="small">Copy code</button>
+          <button id="t-import" class="small">Import code</button>
         </div>
-
-        <section>
-          <h2>Volume <span class="val volume-label"></span></h2>
-          <input id="volume" class="volume-slider" type="range" min="0" max="100" step="1" />
-        </section>
-
-        <button id="play" class="primary">Play</button>
-        <p class="keys" data-for-mode="drum"><kbd>D</kbd><kbd>K</kbd> rim (ka) &nbsp;·&nbsp; <kbd>F</kbd><kbd>J</kbd> center (don) &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>R</kbd> restart</p>
-        <p class="keys" data-for-mode="highway"><kbd>D</kbd><kbd>F</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd> hit &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>R</kbd> restart</p>
+        <p id="t-status" class="hint center"></p>
       </div>
     </div>
 

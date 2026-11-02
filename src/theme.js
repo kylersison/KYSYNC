@@ -1,5 +1,6 @@
-// Washi paper theme: warm paper, sumi ink, forest green accent.
-// Lane colors come from traditional Japanese dye colors.
+// Colors and drawing helpers. The default is the washi paper theme (warm paper, sumi ink,
+// forest green, lane colors from traditional Japanese dyes); src/themes.js swaps these
+// values in place for other presets or a custom theme, so every import sees the change.
 
 export const THEME = {
   paper: '#ebdfc4',       // kinari: warm unbleached washi
@@ -12,6 +13,10 @@ export const THEME = {
   accent: '#2f5a3c',      // forest green
   accentSoft: '#5f8a63',
   missed: '#b9ae97',
+  shadow: 'rgba(60, 45, 20, 0.18)', // under keycaps and notes
+  gloss: 'rgba(255, 255, 255, 0.55)', // sheen on keycap tops
+  grain: 1,                          // paper texture strength, 0..1
+  scenery: 1,                        // ink mountains strength, 0 = off
   font: '"Zen Kaku Gothic New", system-ui, sans-serif',
   fontDisplay: '"Shippori Mincho", "Zen Kaku Gothic New", serif',
 };
@@ -49,8 +54,10 @@ export function makePaper(w, h, dpr = 1, base = THEME.paper) {
 
   // Grain
   const grains = Math.floor((w * h) / 45);
+  const k = THEME.grain;
+  if (k <= 0) return c;
   for (let i = 0; i < grains; i++) {
-    g.fillStyle = rand() > 0.5 ? 'rgba(120,100,70,0.045)' : 'rgba(255,255,255,0.12)';
+    g.fillStyle = rand() > 0.5 ? `rgba(120,100,70,${0.045 * k})` : `rgba(255,255,255,${0.12 * k})`;
     g.fillRect(rand() * w, rand() * h, 1, 1);
   }
 
@@ -91,7 +98,7 @@ export const DRUM_COLORS = {
 export function drawKeycap(g, cx, cy, w, h, color, pressed, label, font) {
   const r = h * 0.3, depth = h * 0.3, sink = pressed ? depth * 0.7 : 0;
   const x = cx - w / 2, y = cy - h / 2;
-  g.fillStyle = 'rgba(60, 45, 20, 0.18)';
+  g.fillStyle = THEME.shadow;
   roundRect(g, x + 1, y + depth + 3, w, h, r); g.fill();
   g.fillStyle = shade(color, -0.18);
   roundRect(g, x, y + depth, w, h, r); g.fill();
@@ -102,7 +109,7 @@ export function drawKeycap(g, cx, cy, w, h, color, pressed, label, font) {
   g.strokeStyle = color;
   g.stroke();
   if (!pressed) {
-    g.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    g.fillStyle = THEME.gloss;
     roundRect(g, x + w * 0.12, y + 3, w * 0.76, h * 0.14, h * 0.07); g.fill();
   }
   if (label) {
@@ -131,7 +138,7 @@ export function drawCountdown(g, state, x, y, h) {
   g.textAlign = 'center';
   if (state.countdown != null) {
     const r = size * 0.78;
-    g.fillStyle = 'rgba(60, 45, 20, 0.18)';
+    g.fillStyle = THEME.shadow;
     g.beginPath(); g.arc(x + 2, cy + 4, r, 0, Math.PI * 2); g.fill();
     g.fillStyle = THEME.paperLight;
     g.beginPath(); g.arc(x, cy, r, 0, Math.PI * 2); g.fill();
@@ -147,4 +154,97 @@ export function drawCountdown(g, state, x, y, h) {
   g.font = `800 ${Math.round(size * (1.06 - 0.06 * frac))}px ${THEME.fontDisplay}`;
   g.fillText(String(n), x, y);
   g.restore();
+}
+
+/**
+ * Swap in a theme's colors (all '#rrggbb'). Everything that draws reads THEME, LANE_COLORS,
+ * DRUM_COLORS and GRADE_STYLE at draw time, so changes show up on the next frame.
+ */
+export function applyThemeColors(t) {
+  const dark = luminance(t.bg) < 0.35;
+  Object.assign(THEME, {
+    paper: t.bg,
+    paperDeep: t.surface,
+    paperLight: t.cap,
+    ink: t.ink,
+    inkSoft: rgba(t.ink, 0.6),
+    inkFaint: rgba(t.ink, 0.14),
+    accent: t.accent,
+    accentSoft: mix(t.accent, t.bg, 0.35),
+    missed: t.missed,
+    shadow: dark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(60, 45, 20, 0.18)',
+    gloss: dark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.55)',
+    grain: t.grain,
+  });
+  LANE_COLORS.splice(0, LANE_COLORS.length, ...t.lanes);
+  Object.assign(DRUM_COLORS, { don: t.don, ka: t.ka, roll: t.roll, wood: t.wood });
+  GRADE_STYLE.perfect.color = t.accent;
+  GRADE_STYLE.great.color = t.ka;
+  GRADE_STYLE.good.color = t.roll;
+  GRADE_STYLE.miss.color = t.don;
+}
+
+// ---- color math (hex in, CSS colors out) ----
+
+export function rgbOf(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [n >> 16, (n >> 8) & 255, n & 255];
+}
+
+export function rgba(hex, a) {
+  const [r, g, b] = rgbOf(hex);
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+/** Blend two hex colors; amount 0 = a, 1 = b. Returns hex. */
+export function mix(a, b, amount) {
+  const x = rgbOf(a), y = rgbOf(b);
+  return '#' + x.map((c, i) => Math.round(c + (y[i] - c) * amount).toString(16).padStart(2, '0')).join('');
+}
+
+/** Relative luminance, 0 (black) .. 1 (white). */
+export function luminance(hex) {
+  const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const [r, g, b] = rgbOf(hex).map(lin);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+// ---- scenery ----
+
+// Mountain ridges: each layer is a few sines summed into peaks, so the range is endless
+// and never repeats visibly. [base height (fraction of screen), ink alpha, drift px/s, roughness]
+const RIDGES = [
+  [0.58, 0.035, 3, 0.8],
+  [0.70, 0.055, 6, 1],
+  [0.83, 0.08, 11, 1.25],
+];
+
+function ridgeY(x, i, h, rough) {
+  // 1 - |sin| has a sharp point on top, so the ridges peak like brush-drawn mountains.
+  const peak = (f, ph) => (1 - Math.abs(Math.sin(x * f + ph))) ** 1.6;
+  const a = peak(0.0019, i * 1.7) * 0.12
+    + peak(0.0053, i * 4.1) * 0.045 * rough
+    + Math.sin(x * 0.019 + i) * 0.005 * rough;
+  return a * h;
+}
+
+/**
+ * Sumi-e mountains in layers along the bottom of the screen, drifting slowly sideways,
+ * far ranges paler than near ones like mist. Drawn in the theme's ink color, so they're
+ * dark hills on light themes and pale ones on dark themes. THEME.scenery 0 turns them off.
+ */
+export function drawMountains(g, w, h, time) {
+  const k = THEME.scenery;
+  if (!(k > 0)) return;
+  const step = Math.max(6, Math.round(w / 220));
+  RIDGES.forEach(([base, a, speed, rough], i) => {
+    const shift = time * speed;
+    g.fillStyle = rgba(THEME.ink, a * k * (THEME.dark ? 0.8 : 1));
+    g.beginPath();
+    g.moveTo(0, h);
+    for (let x = 0; x <= w + step; x += step) g.lineTo(x, h * base - ridgeY(x + shift + i * 900, i, h, rough));
+    g.lineTo(w, h);
+    g.closePath();
+    g.fill();
+  });
 }

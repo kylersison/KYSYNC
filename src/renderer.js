@@ -2,7 +2,7 @@
 // Washi theme: paper texture, sumi ink lines, dye-colored notes.
 
 import { LANE_COUNT, LANE_LABELS } from './constants.js';
-import { THEME, LANE_COLORS, GRADE_STYLE, makePaper, shade, roundRect, drawCountdown } from './theme.js';
+import { THEME, LANE_COLORS, GRADE_STYLE, makePaper, shade, roundRect, drawCountdown, drawMountains } from './theme.js';
 
 const FOCAL = 1;
 const Z_FAR = 3; // higher = steeper perspective
@@ -57,10 +57,12 @@ export class Renderer {
     this.canvas.width = Math.round(this.w * dpr);
     this.canvas.height = Math.round(this.h * dpr);
     this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.cx = this.w / 2;
+    // While the theme panel is open on the right, center the highway in the space left of it.
+    const inset = this.sidePanel && this.w > 860 ? 592 : 0;
+    this.cx = (this.w - inset) / 2;
     this.hitY = this.h * 0.84;
     this.horizonY = this.h * 0.1;
-    this.half = Math.min(this.w * 0.44, 340);
+    this.half = Math.min((this.w - inset) * 0.44, 340);
     this.paper = makePaper(this.w, this.h, dpr);
   }
 
@@ -108,8 +110,9 @@ export class Renderer {
     this.lastFrame = now;
     if (judge) this.consumeEvents(judge.events);
 
-    // Paper background
+    // Paper background, with ink-wash mountains along the bottom
     g.drawImage(this.paper, 0, 0, this.w, this.h);
+    drawMountains(g, this.w, this.h, now / 1000);
 
     const look = lookahead;
     const bottom = -0.035 * look; // a sliver of highway below the hit line
@@ -228,7 +231,7 @@ export class Renderer {
     const x = p.x - w / 2, y = p.y - h / 2;
 
     // shadow on the paper, then the key's side wall
-    g.fillStyle = 'rgba(60, 45, 20, 0.18)';
+    g.fillStyle = THEME.shadow;
     roundRect(g, x + 1, y + depth + 3, w, h, r); g.fill();
     g.fillStyle = shade(c, -0.18);
     roundRect(g, x, y + depth, w, h, r); g.fill();
@@ -242,7 +245,7 @@ export class Renderer {
     g.stroke();
     if (!pressed) {
       // soft sheen along the top edge
-      g.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      g.fillStyle = THEME.gloss;
       roundRect(g, x + w * 0.12, y + 3, w * 0.76, h * 0.14, h * 0.07); g.fill();
     }
 
@@ -263,7 +266,7 @@ export class Renderer {
     const c = missed ? THEME.missed : LANE_COLORS[lane];
     const x = p.x - w / 2, y = p.y - h / 2;
 
-    g.fillStyle = 'rgba(60, 45, 20, 0.16)';
+    g.fillStyle = THEME.shadow;
     roundRect(g, x + 1, y + d + 2, w, h, r); g.fill();
     g.fillStyle = missed ? shade(THEME.missed, -0.15) : shade(c, -0.3);
     roundRect(g, x, y + d, w, h, r); g.fill();
@@ -283,7 +286,7 @@ export class Renderer {
     if (end <= start) return;
     const c = laneCenter(n.lane);
     this._quad(start, end, c - 0.07, c + 0.07, look);
-    g.fillStyle = dead ? alpha('#a89e88', 0.5) : alpha(LANE_COLORS[n.lane], held ? 0.85 : 0.55);
+    g.fillStyle = dead ? alpha(THEME.missed, 0.5) : alpha(LANE_COLORS[n.lane], held ? 0.85 : 0.55);
     g.fill();
   }
 

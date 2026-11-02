@@ -2,7 +2,7 @@
 // The drum on the left lights up per side: D = left rim, F = left center, J = right center, K = right rim.
 
 import { Renderer, beatLines } from './renderer.js';
-import { THEME, DRUM_COLORS, GRADE_STYLE, shade, roundRect, drawKeycap, drawCountdown } from './theme.js';
+import { THEME, DRUM_COLORS, GRADE_STYLE, shade, roundRect, drawKeycap, drawCountdown, drawMountains } from './theme.js';
 
 const KEY_INFO = [
   { label: 'D', kind: 'ka', side: 'L' },
@@ -72,6 +72,7 @@ export class DrumRenderer extends Renderer {
     if (judge) this.consumeEvents(judge.events);
 
     g.drawImage(this.paper, 0, 0, this.w, this.h);
+    drawMountains(g, this.w, this.h, now / 1000);
 
     const top = this.laneY - this.laneH / 2, bot = this.laneY + this.laneH / 2;
 
@@ -178,7 +179,7 @@ export class DrumRenderer extends Renderer {
     const R = big ? this.bigR : this.noteR;
     const color = missed ? THEME.missed : DRUM_COLORS[kind];
     const y = this.laneY;
-    g.fillStyle = 'rgba(60, 45, 20, 0.18)';
+    g.fillStyle = THEME.shadow;
     g.beginPath(); g.arc(x + 1, y + R * 0.22 + 2, R, 0, Math.PI * 2); g.fill();
     g.fillStyle = shade(color, -0.3);
     g.beginPath(); g.arc(x, y + R * 0.18, R, 0, Math.PI * 2); g.fill();

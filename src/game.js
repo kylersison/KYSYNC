@@ -30,6 +30,37 @@ const store = {
 const $ = (sel) => document.querySelector(sel);
 const show = (el, on) => el.classList.toggle('hidden', !on);
 
+/**
+ * Endless fake notes for the theme screen, so colors can be judged on moving notes:
+ * a lane run with a hold and a missed (grey) note for the highway, don/ka/big/roll for drums.
+ */
+function previewJudge(mode, t, look) {
+  const step = 0.3, notes = [];
+  const k0 = Math.floor((t - 0.5) / step), k1 = Math.ceil((t + look + 0.5) / step);
+  const lanes = [0, 1, 2, 3, 4, 3, 2, 1];
+  const drums = ['don', 'ka', 'don', 'don', 'ka', 'bigDon', 'ka', 'bigKa'];
+  for (let k = k0; k <= k1; k++) {
+    const time = k * step;
+    const result = k % 9 === 4 ? 'miss' : time < t ? 'perfect' : null;
+    if (mode === 'drum') {
+      if (k % 16 >= 12) {
+        if (k % 16 === 12) notes.push({ time, kind: 'roll', type: 'roll', duration: step * 3, result: null });
+        continue;
+      }
+      const type = drums[((k % 8) + 8) % 8];
+      notes.push({ time, type, kind: type.toLowerCase().includes('don') ? 'don' : 'ka', big: type.startsWith('big'), duration: 0, result });
+    } else {
+      const lane = lanes[((k % 8) + 8) % 8];
+      const hold = ((k % 16) + 16) % 16 === 0;
+      notes.push({ time, lane, duration: hold ? step * 3 : 0, result: hold ? null : result, holdState: null });
+    }
+  }
+  return {
+    notes, activeHolds: new Set(), events: [],
+    score: 123456, accuracy: 0.974, combo: 42, multiplier: 4, counts: {},
+  };
+}
+
 function gradeLetter(acc) {
   if (acc >= 0.97) return 'S';
   if (acc >= 0.92) return 'A';
@@ -223,6 +254,23 @@ export class Game {
     if (this.state === 'paused') await this.engine.pause(this.resumeAt);
   }
 
+  /** Theme screen: the game keeps drawing behind it with preview notes. */
+  openThemes() {
+    if (this.state !== 'menu') return;
+    this._setState('theme');
+    this._sidePanel(true);
+  }
+
+  closeThemes() {
+    if (this.state !== 'theme') return;
+    this._setState('menu');
+    this._sidePanel(false);
+  }
+
+  _sidePanel(on) {
+    for (const r of Object.values(this.renderers)) { r.sidePanel = on; r.resize(); }
+  }
+
   quitToMenu() {
     this.engine.stop();
     this.engine.resume();
@@ -300,6 +348,7 @@ export class Game {
   _loop() {
     requestAnimationFrame((ts) => this._loop(ts));
     const inGame = this.state === 'playing' || this.state === 'paused' || this.state === 'countdown';
+    const preview = this.state === 'theme';
     let t;
     let countdown = null;
 
@@ -331,16 +380,16 @@ export class Game {
       r.draw({
         t,
         countdown,
-        judge: inGame ? this.judge : null,
-        lookahead: inGame ? this.lookahead : 1.4,
+        judge: inGame ? this.judge : preview ? previewJudge(mode, t, this.lookahead) : null,
+        lookahead: inGame || preview ? this.lookahead : 1.4,
         keysDown: this.keysDown,
         bpm: inGame ? this.song.chart.bpm : 90,
         offset: inGame ? this.song.chart.offset : 0,
         beats: inGame ? this.song.chart.beats : null,
         barPhase: inGame ? this.song.chart.barPhase : 0,
         duration: this.duration,
-        title: this.song?.chart.title,
-        difficulty: instName,
+        title: preview ? '' : this.song?.chart.title,
+        difficulty: preview ? '' : instName,
       });
     } catch (err) {
       if (!this._drawErrorLogged) { console.error('Draw error:', err); this._drawErrorLogged = true; }
@@ -397,6 +446,9 @@ export class Game {
             this.calibration?.tap(e.timeStamp);
           }
           break;
+        case 'theme':
+          if (e.code === 'Escape') this.closeThemes();
+          break;
         case 'menu':
           if (e.code === 'Enter' && document.activeElement?.tagName !== 'BUTTON') this.start();
           break;
@@ -426,6 +478,7 @@ export class Game {
     show($('#pause'), state === 'paused');
     show($('#results'), state === 'results');
     show($('#calib'), state === 'calibrate');
+    show($('#theme'), state === 'theme');
   }
 
   _bindMenu() {
@@ -497,7 +550,7 @@ export class Game {
     for (const b of document.querySelectorAll('#diffs button')) {
       b.classList.toggle('active', b.dataset.diff === s.difficulty);
     }
-    for (const b of document.querySelectorAll('#modes button')) {
+    for (const b of document.querySelectorAll('#modes button, #t-preview button')) {
       b.classList.toggle('active', b.dataset.mode === s.mode);
     }
     for (const el of document.querySelectorAll('[data-for-mode]')) {

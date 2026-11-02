@@ -56,6 +56,12 @@ How instrument charts work (`src/instrumentChart.js`, `src/pitch.js`), all on th
 
 Stems are stored in the browser as Opus (WebCodecs, ~4 MB per stem for a 4-minute song), or 16-bit PCM where WebCodecs audio isn't available.
 
+## Themes
+
+Menu → **Theme** (top right). Pick a preset (**Washi**, the dimmer **Lamplight**, dark **Sumi**, **Yoru** and **Matcha**, or **High contrast**), then change any color: background, highway, keys and panels, text, accent, missed notes, each lane, and the drum colors. **Brightness** dims the whole screen and **Paper texture** turns the grain down or off, both easy on the eyes for long sessions. **Mountains** are sumi-e ink ridges drifting slowly along the bottom of the screen (on by default; turn them off or fade them, and the choice sticks across themes). The game keeps playing preview notes behind the panel so you can see changes live; hold your lane keys to see pressed keys.
+
+Edits are saved automatically. **Save this theme** adds it to your list, **Copy code** / **Import code** share a theme as text. Presets live in `src/themes.js`.
+
 ## Pausing
 
 `Esc` pauses. Resuming rewinds 3 seconds and counts 3-2-1 while the song plays back up to where you stopped, so you can catch the beat before notes count again. Keys do nothing until the count hits zero. Change the length with `RESUME_COUNTDOWN` in `src/constants.js`.
@@ -100,7 +106,9 @@ src/
   stems.js        splitting in the browser (Demucs) and importing stem files
   stemCodec.js    stores stems compactly (Opus via WebCodecs, PCM fallback)
   library.js      saved songs (IndexedDB)
-  theme.js        washi paper, colors, keycap drawing
+  theme.js        live colors (THEME etc.), paper texture, keycap drawing
+  themes.js       theme presets, saved themes, applying a theme to canvas + CSS
+  themePanel.js   the Theme screen (presets, color pickers, brightness, texture)
   renderer.js     highway mode canvas
   drumRenderer.js drum mode canvas
   calibration.js  latency calibration

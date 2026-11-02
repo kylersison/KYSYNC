@@ -2,7 +2,8 @@ import './style.css';
 import { Game } from './game.js';
 import { normalizeChart } from './chart.js';
 import { buildDemoChart, buildDemoInstruments, renderDemoAudio, renderDemoStems } from './demoSong.js';
-import { makePaper } from './theme.js';
+import { themes, applyTheme } from './themes.js';
+import { initThemePanel } from './themePanel.js';
 import { library } from './library.js';
 import { CHART_VERSION, autoChart } from './analysis.js';
 import { INSTRUMENT_CHART_VERSION, autoChartSong } from './instrumentChart.js';
@@ -12,13 +13,15 @@ import {
 } from './stems.js';
 import { encodeStem } from './stemCodec.js';
 
-// Menu panels use the same generated washi as the game canvas, just lighter.
-document.documentElement.style.setProperty(
-  '--washi', `url(${makePaper(520, 760, 1, '#f4ecda').toDataURL()})`,
-);
+// Colors first, so the canvas paper and the menus start out in your theme.
+applyTheme(themes.current);
 
 const game = new Game(document.querySelector('#game'));
 const status = document.querySelector('#custom-status');
+
+// Theme changes: repaint the canvas paper (the menus follow through CSS variables).
+themes.onChange(() => { for (const r of Object.values(game.renderers)) r.resize(); });
+initThemePanel(game);
 
 // Built-in demo song (synthesized, no audio files needed). Its stems come straight from
 // the synth, so you can try playing drums, bass or lead without splitting anything.
